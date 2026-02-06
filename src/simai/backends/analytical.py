@@ -38,10 +38,16 @@ def _find_simai_root() -> Path | None:
     except FileNotFoundError:
         pass
 
-    # Check vendored location
+    # Check vendored location (wheel install)
     vendored = Path(__file__).resolve().parent.parent / "_vendor"
     if (vendored / "astra-sim-alibabacloud").is_dir():
         return vendored
+
+    # Check vendor submodule (editable install)
+    # __file__ is at src/simai/backends/analytical.py → project root is 4 levels up
+    vendor_sub = Path(__file__).resolve().parent.parent.parent.parent / "vendor" / "simai"
+    if (vendor_sub / "astra-sim-alibabacloud").is_dir():
+        return vendor_sub
 
     return None
 

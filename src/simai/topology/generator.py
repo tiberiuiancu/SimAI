@@ -31,16 +31,14 @@ def _find_topo_root() -> Path:
         if (candidate / "gen_Topo_Template.py").is_file():
             return candidate
 
-    # 3. Sibling directory heuristic
-    sibling = (
-        Path(__file__).resolve().parent.parent.parent.parent.parent
-        / "simai"
-        / "astra-sim-alibabacloud"
-        / "inputs"
-        / "topo"
+    # 3. Vendor submodule (editable install)
+    # __file__ is at src/simai/topology/generator.py → project root is 4 levels up
+    vendor_sub = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "vendor" / "simai" / "astra-sim-alibabacloud" / "inputs" / "topo"
     )
-    if (sibling / "gen_Topo_Template.py").is_file():
-        return sibling
+    if (vendor_sub / "gen_Topo_Template.py").is_file():
+        return vendor_sub
 
     raise FileNotFoundError(
         "Cannot find gen_Topo_Template.py. Either:\n"

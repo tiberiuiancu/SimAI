@@ -55,11 +55,17 @@ def run_binary(
     if env:
         run_env.update(env)
 
-    return subprocess.run(
+    result = subprocess.run(
         cmd,
         cwd=cwd,
         env=run_env,
-        check=True,
         stdout=None if verbose else subprocess.DEVNULL,
-        stderr=None if verbose else subprocess.DEVNULL,
+        stderr=None if verbose else subprocess.PIPE,
     )
+    if result.returncode != 0:
+        stderr = result.stderr.decode(errors="replace").strip() if result.stderr else ""
+        msg = f"'{name}' exited with code {result.returncode}"
+        if stderr:
+            msg += f":\n{stderr}"
+        raise subprocess.CalledProcessError(result.returncode, cmd, output=None, stderr=stderr)
+    return result

@@ -12,15 +12,23 @@ BINARY_NAME = "SimAI_simulator"
 
 def _find_default_config() -> Path:
     """Find the bundled default SimAI.conf."""
-    # Check in vendored location
+    conf_rel = Path("astra-sim-alibabacloud") / "inputs" / "config" / "SimAI.conf"
+
+    # Check in vendored location (wheel install)
     vendored = Path(__file__).resolve().parent.parent / "_vendor" / "SimAI.conf"
     if vendored.is_file():
         return vendored
 
+    # Check vendor submodule (editable install)
+    # __file__ is at src/simai/backends/ns3.py → project root is 4 levels up
+    vendor_sub = Path(__file__).resolve().parent.parent.parent.parent / "vendor" / "simai" / conf_rel
+    if vendor_sub.is_file():
+        return vendor_sub
+
     # Check SIMAI_PATH
     env_path = os.environ.get("SIMAI_PATH")
     if env_path:
-        candidate = Path(env_path) / "astra-sim-alibabacloud" / "inputs" / "config" / "SimAI.conf"
+        candidate = Path(env_path) / conf_rel
         if candidate.is_file():
             return candidate
 
