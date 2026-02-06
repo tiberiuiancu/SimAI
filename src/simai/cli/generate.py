@@ -95,6 +95,11 @@ def workload(
         bool,
         typer.Option("--distributed-optimizer/--no-distributed-optimizer", help="Use distributed optimizer."),
     ] = False,
+    # --- Training ---
+    epochs: Annotated[
+        int,
+        typer.Option("--epochs", help="Number of training iterations."),
+    ] = 1,
     # --- Compute profiling ---
     profile_compute: Annotated[
         bool,
@@ -137,6 +142,7 @@ def workload(
         use_flash_attn=flash_attention,
         swiglu=swiglu,
         use_distributed_optimizer=distributed_optimizer,
+        epoch_num=epochs,
         aiob_enable=profile_compute,
         comp_filepath=str(compute_profile) if compute_profile else None,
         gpu_type=gpu_type,

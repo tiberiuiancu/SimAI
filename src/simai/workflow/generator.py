@@ -90,6 +90,7 @@ def generate_workload(
     use_flash_attn: bool = False,
     swiglu: bool = False,
     use_distributed_optimizer: bool = False,
+    epoch_num: int = 1,
     aiob_enable: bool = False,
     comp_filepath: str | None = None,
     gpu_type: str | None = None,
@@ -156,7 +157,7 @@ def generate_workload(
         comp_filepath=comp_filepath,
         # Misc defaults
         workload_only=True,
-        epoch_num=1,
+        epoch_num=epoch_num,
         pp_rank=-1,
         add_bias_linear=False,
         dtype="bfloat16",
