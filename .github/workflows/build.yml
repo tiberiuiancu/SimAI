@@ -93,11 +93,13 @@ jobs:
         id: submodule-hash
         run: echo "hash=$(git -C vendor/simai rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Cache ns3 binary
+      - name: Cache ns3 build
         id: cache-ns3
         uses: actions/cache@v4
         with:
-          path: vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface/simulation/build/scratch/ns3.36.1-AstraSimNetwork-debug
+          path: |
+            vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface/simulation/build/scratch/ns3.36.1-AstraSimNetwork-debug
+            vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface/simulation/build/lib/libns3*
           key: ns3-${{ steps.submodule-hash.outputs.hash }}
 
       - name: Install build dependencies
@@ -130,11 +132,13 @@ jobs:
           ./ns3 configure -d debug --enable-mtp
           ./ns3 build
 
-      - name: Upload ns3 binary
+      - name: Upload ns3 binary and shared libraries
         uses: actions/upload-artifact@v4
         with:
           name: SimAI_simulator
-          path: vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface/simulation/build/scratch/ns3.36.1-AstraSimNetwork-debug
+          path: |
+            vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface/simulation/build/scratch/ns3.36.1-AstraSimNetwork-debug
+            vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface/simulation/build/lib/libns3*
 
   build-wheel:
     runs-on: ubuntu-latest
@@ -150,15 +154,18 @@ jobs:
           name: SimAI_analytical
           path: build/bin
 
-      - name: Download ns3 binary
+      - name: Download ns3 binary and libraries
         uses: actions/download-artifact@v4
         with:
           name: SimAI_simulator
-          path: build/bin
+          path: build/ns3-artifact
 
       - name: Prepare binaries
         run: |
-          mv build/bin/ns3.36.1-AstraSimNetwork-debug build/bin/SimAI_simulator
+          # Flatten ns3 artifact: binary + shared libraries into build/bin/
+          find build/ns3-artifact -name 'ns3.36.1-AstraSimNetwork-debug' -exec mv {} build/bin/SimAI_simulator \;
+          find build/ns3-artifact -name 'libns3*' -exec mv {} build/bin/ \;
+          rm -rf build/ns3-artifact
           chmod +x build/bin/*
 
       - name: Install uv

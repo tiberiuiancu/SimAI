@@ -55,6 +55,12 @@ def run_binary(
     if env:
         run_env.update(env)
 
+    # Ensure shared libraries next to the binary are found (e.g. libns3*.so)
+    bin_dir = str(binary.parent)
+    ld_path = run_env.get("LD_LIBRARY_PATH", "")
+    if bin_dir not in ld_path:
+        run_env["LD_LIBRARY_PATH"] = f"{bin_dir}:{ld_path}" if ld_path else bin_dir
+
     result = subprocess.run(
         cmd,
         cwd=cwd,
