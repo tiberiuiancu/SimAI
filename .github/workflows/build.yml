@@ -6,6 +6,11 @@ on:
     paths:
       - pyproject.toml
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Build even if version is unchanged'
+        type: boolean
+        default: false
 
 jobs:
   check-version:
@@ -39,7 +44,7 @@ jobs:
 
   build-analytical:
     needs: check-version
-    if: needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.check-version.outputs.changed == 'true' || inputs.force == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,7 +82,7 @@ jobs:
 
   build-ns3:
     needs: check-version
-    if: needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.check-version.outputs.changed == 'true' || inputs.force == true
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
