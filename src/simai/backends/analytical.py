@@ -35,7 +35,7 @@ def _find_simai_root() -> Path | None:
     # Check vendored location
     vendored = Path(__file__).resolve().parent.parent / "_vendor"
     if (vendored / "astra-sim-alibabacloud").is_dir():
-        return vendored.parent
+        return vendored
 
     return None
 

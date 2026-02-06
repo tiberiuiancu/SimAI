@@ -1,0 +1,106 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-analytical:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc g++ cmake make
+
+      - name: Build SimAI_analytical
+        run: |
+          cd vendor/simai/astra-sim-alibabacloud/build/simai_analytical
+          mkdir -p build && cd build
+          cmake -DUSE_ANALYTICAL=TRUE ..
+          make -j$(nproc)
+
+      - name: Upload analytical binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: SimAI_analytical
+          path: vendor/simai/astra-sim-alibabacloud/build/simai_analytical/build/simai_analytical/SimAI_analytical
+
+  build-ns3:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc g++ cmake make libxml2-dev libsqlite3-dev
+
+      - name: Copy ns3 source into extern dir
+        run: |
+          mkdir -p vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface
+          cp -r vendor/simai/ns-3-alibabacloud/* vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface/
+
+      - name: Build AstraSim library
+        run: |
+          cd vendor/simai/astra-sim-alibabacloud/build/astra_ns3
+          mkdir -p build && cd build
+          cmake ..
+          make -j$(nproc)
+
+      - name: Build ns3
+        run: |
+          cd vendor/simai/astra-sim-alibabacloud
+          cp astra-sim/network_frontend/ns3/AstraSimNetwork.cc extern/network_backend/ns3-interface/simulation/scratch/
+          cp astra-sim/network_frontend/ns3/*.h extern/network_backend/ns3-interface/simulation/scratch/
+          rm -rf extern/network_backend/ns3-interface/simulation/src/applications/astra-sim
+          cp -r astra-sim extern/network_backend/ns3-interface/simulation/src/applications/
+          cd extern/network_backend/ns3-interface/simulation
+          ./ns3 configure -d debug --enable-mtp
+          ./ns3 build
+
+      - name: Upload ns3 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: SimAI_simulator
+          path: vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface/simulation/build/scratch/ns3.36.1-AstraSimNetwork-debug
+
+  build-wheel:
+    runs-on: ubuntu-latest
+    needs: [build-analytical, build-ns3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download analytical binary
+        uses: actions/download-artifact@v4
+        with:
+          name: SimAI_analytical
+          path: build/bin
+
+      - name: Download ns3 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: SimAI_simulator
+          path: build/bin
+
+      - name: Prepare binaries
+        run: |
+          mv build/bin/ns3.36.1-AstraSimNetwork-debug build/bin/SimAI_simulator
+          chmod +x build/bin/*
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build wheel
+        run: SIMAI_PLATFORM_TAG=manylinux_2_35_x86_64 uv build --wheel
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl

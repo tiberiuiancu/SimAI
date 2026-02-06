@@ -33,6 +33,24 @@ class CustomBuildHook(BuildHookInterface):
                 if src.is_dir():
                     shutil.copytree(src, aicb_dest / subdir, dirs_exist_ok=True)
 
+        # --- Vendor auxiliary data files (ratio CSVs + SimAI.conf) ---
+        astrasim_src = Path(self.root) / "vendor" / "simai" / "astra-sim-alibabacloud"
+        if astrasim_src.is_dir():
+            # Ratio CSV files
+            ratio_src = astrasim_src / "inputs" / "ratio"
+            if ratio_src.is_dir():
+                ratio_dest = src_root / "_vendor" / "astra-sim-alibabacloud" / "inputs" / "ratio"
+                ratio_dest.mkdir(parents=True, exist_ok=True)
+                for csv_file in ratio_src.glob("*.csv"):
+                    shutil.copy2(csv_file, ratio_dest / csv_file.name)
+
+            # SimAI.conf
+            conf_src = astrasim_src / "inputs" / "config" / "SimAI.conf"
+            if conf_src.is_file():
+                conf_dest = src_root / "_vendor" / "SimAI.conf"
+                conf_dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(conf_src, conf_dest)
+
         # --- Include pre-built binaries ---
         bin_dir = Path(self.root) / "build" / "bin"
         bin_dest = src_root / "_binaries"
