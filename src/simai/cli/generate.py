@@ -7,7 +7,7 @@ app = typer.Typer(no_args_is_help=True)
 
 
 @app.command()
-def generate(
+def workload(
     # --- Parallelism & cluster ---
     framework: Annotated[
         str,
@@ -142,3 +142,107 @@ def generate(
         gpu_type=gpu_type,
         output=output,
     )
+
+
+def _topology_impl(
+    topology_type: Annotated[
+        str,
+        typer.Option("--type", "-t", help="Topology type: Spectrum-X, AlibabaHPN, or DCN+."),
+    ],
+    num_gpus: Annotated[
+        Optional[int],
+        typer.Option("--num-gpus", "-g", help="Total number of GPUs."),
+    ] = None,
+    gpus_per_server: Annotated[
+        Optional[int],
+        typer.Option("--gpus-per-server", help="GPUs per server."),
+    ] = None,
+    gpu_type: Annotated[
+        Optional[str],
+        typer.Option("--gpu-type", help="GPU type (e.g. H100, A100)."),
+    ] = None,
+    nic_bandwidth: Annotated[
+        Optional[str],
+        typer.Option("--nic-bandwidth", help="NIC-to-switch bandwidth (e.g. 400Gbps)."),
+    ] = None,
+    nvlink_bandwidth: Annotated[
+        Optional[str],
+        typer.Option("--nvlink-bandwidth", help="NVLink bandwidth (e.g. 2880Gbps)."),
+    ] = None,
+    nics_per_switch: Annotated[
+        Optional[int],
+        typer.Option("--nics-per-switch", help="NICs per aggregate switch."),
+    ] = None,
+    aggregate_switches: Annotated[
+        Optional[int],
+        typer.Option("--aggregate-switches", help="Number of aggregate switches."),
+    ] = None,
+    pod_switches: Annotated[
+        Optional[int],
+        typer.Option("--pod-switches", help="Number of pod switches."),
+    ] = None,
+    aggregate_bandwidth: Annotated[
+        Optional[str],
+        typer.Option("--aggregate-bandwidth", help="Aggregate-to-pod bandwidth (e.g. 400Gbps)."),
+    ] = None,
+    switches_per_pod: Annotated[
+        Optional[int],
+        typer.Option("--switches-per-pod", help="Aggregate switches per pod switch."),
+    ] = None,
+    nv_switches_per_server: Annotated[
+        Optional[int],
+        typer.Option("--nv-switches-per-server", help="NVLink switches per server."),
+    ] = None,
+    nvlink_latency: Annotated[
+        Optional[str],
+        typer.Option("--nvlink-latency", help="NVLink latency (e.g. 0.000025ms)."),
+    ] = None,
+    nic_latency: Annotated[
+        Optional[str],
+        typer.Option("--nic-latency", help="NIC latency (e.g. 0.0005ms)."),
+    ] = None,
+    error_rate: Annotated[
+        Optional[str],
+        typer.Option("--error-rate", help="Link error rate."),
+    ] = None,
+    dual_tor: Annotated[
+        bool,
+        typer.Option("--dual-tor/--no-dual-tor", help="Enable dual ToR (DCN+/AlibabaHPN)."),
+    ] = False,
+    dual_plane: Annotated[
+        bool,
+        typer.Option("--dual-plane/--no-dual-plane", help="Enable dual plane (AlibabaHPN)."),
+    ] = False,
+    output: Annotated[
+        Optional[Path],
+        typer.Option("--output", "-o", help="Output directory path."),
+    ] = None,
+):
+    """Generate a network topology for SimAI simulation."""
+    from simai.topology.generator import generate_topology
+
+    generate_topology(
+        topology_type=topology_type,
+        num_gpus=num_gpus,
+        gpus_per_server=gpus_per_server,
+        gpu_type=gpu_type,
+        nic_bandwidth=nic_bandwidth,
+        nvlink_bandwidth=nvlink_bandwidth,
+        nics_per_switch=nics_per_switch,
+        aggregate_switches=aggregate_switches,
+        pod_switches=pod_switches,
+        aggregate_bandwidth=aggregate_bandwidth,
+        switches_per_pod=switches_per_pod,
+        nv_switches_per_server=nv_switches_per_server,
+        nvlink_latency=nvlink_latency,
+        nic_latency=nic_latency,
+        error_rate=error_rate,
+        dual_tor=dual_tor,
+        dual_plane=dual_plane,
+        output=output,
+    )
+
+
+# Register topology command and its hidden alias
+app.command(name="topology")(_topology_impl)
+app.command(name="topo", hidden=True)(_topology_impl)

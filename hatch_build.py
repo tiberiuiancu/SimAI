@@ -33,8 +33,16 @@ class CustomBuildHook(BuildHookInterface):
                 if src.is_dir():
                     shutil.copytree(src, aicb_dest / subdir, dirs_exist_ok=True)
 
-        # --- Vendor auxiliary data files (ratio CSVs + SimAI.conf) ---
+        # --- Vendor topology generator ---
         astrasim_src = Path(self.root) / "vendor" / "simai" / "astra-sim-alibabacloud"
+        topo_src = astrasim_src / "inputs" / "topo" / "gen_Topo_Template.py"
+        if topo_src.is_file():
+            topo_dest = src_root / "_vendor" / "topo"
+            topo_dest.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(topo_src, topo_dest / "gen_Topo_Template.py")
+            (topo_dest / "__init__.py").touch()
+
+        # --- Vendor auxiliary data files (ratio CSVs + SimAI.conf) ---
         if astrasim_src.is_dir():
             # Ratio CSV files
             ratio_src = astrasim_src / "inputs" / "ratio"

@@ -1,6 +1,6 @@
 import typer
 
-from simai.cli.workflow import app as workflow_app
+from simai.cli.generate import app as generate_app
 from simai.cli.simulate import app as simulate_app
 
 app = typer.Typer(
@@ -9,7 +9,8 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-app.add_typer(workflow_app, name="workflow", help="Generate training workloads.")
+app.add_typer(generate_app, name="generate", help="Generate workloads and topologies.")
+app.add_typer(generate_app, name="gen", hidden=True)  # alias
 app.add_typer(simulate_app, name="simulate", help="Run network simulations.")
 
 

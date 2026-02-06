@@ -1,13 +1,13 @@
 # SimAI
 
-Python wrapper for the [SimAI](https://github.com/aliyun/SimAI) datacenter network simulator. Provides a CLI and Python API for generating training workloads and running network simulations, with pre-built binaries bundled in the wheel.
+Python wrapper for the [SimAI](https://github.com/aliyun/SimAI) datacenter network simulator. Provides a CLI and Python API for generating training workloads, network topologies, and running network simulations, with pre-built binaries bundled in the wheel.
 
 ## Installation
 
 Download the latest wheel from [GitHub Releases](https://github.com/tiberiuiancu/simai/releases):
 
 ```bash
-pip install https://github.com/tiberiuiancu/simai/releases/download/v0.1.0/simai-0.1.0-py3-none-manylinux_2_35_x86_64.whl
+pip install https://github.com/tiberiuiancu/simai/releases/download/v0.2.0/simai-0.2.0-py3-none-manylinux_2_35_x86_64.whl
 ```
 
 For GPU compute profiling (optional, requires CUDA):
@@ -21,7 +21,7 @@ pip install "simai[profiling]"
 ### 1. Generate a workload
 
 ```bash
-simai workflow generate \
+simai generate workload \
     --framework Megatron \
     --num-gpus 64 \
     --tensor-parallel 4 \
@@ -32,15 +32,21 @@ simai workflow generate \
     -o workload.txt
 ```
 
-### 2. Run a simulation
+### 2. Generate a topology
+
+```bash
+simai generate topology --type DCN+ --num-gpus 64 --gpu-type H100 \
+    --nic-bandwidth 100Gbps --nvlink-bandwidth 3600Gbps -o my_topo/
+```
+
+### 3. Run a simulation
 
 **Analytical** (fast, approximate):
 
 ```bash
 simai simulate analytical \
     -w workload.txt \
-    -g 64 \
-    --gpu-type H100 \
+    -n my_topo/ \
     -o results/
 ```
 
@@ -49,7 +55,7 @@ simai simulate analytical \
 ```bash
 simai simulate ns3 \
     -w workload.txt \
-    -n topology/ \
+    -n my_topo/ \
     -o results/
 ```
 

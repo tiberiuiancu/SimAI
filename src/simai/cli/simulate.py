@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import json
+import re
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -6,39 +10,55 @@ import typer
 app = typer.Typer(no_args_is_help=True)
 
 
+def _read_metadata(topology_dir: Path) -> dict:
+    """Read and return metadata.json from a topology directory."""
+    meta_path = topology_dir / "metadata.json"
+    if not meta_path.is_file():
+        raise typer.BadParameter(
+            f"No metadata.json found in topology directory: {topology_dir}\n"
+            "Did you generate this topology with 'simai generate topology'?"
+        )
+    with open(meta_path) as f:
+        return json.load(f)
+
+
+def _parse_workload_gpu_count(workload: Path) -> int | None:
+    """Extract GPU count from the workload file header line (all_gpus: N)."""
+    with open(workload) as f:
+        for line in f:
+            m = re.search(r"all_gpus:\s*(\d+)", line)
+            if m:
+                return int(m.group(1))
+            # Only check the first few header lines
+            if not line.startswith("#"):
+                break
+    return None
+
+
+def _validate_gpu_count(workload: Path, topology_dir: Path, metadata: dict) -> None:
+    """Warn if the workload GPU count doesn't match the topology GPU count."""
+    workload_gpus = _parse_workload_gpu_count(workload)
+    topo_gpus = metadata.get("num_gpus")
+    if workload_gpus is not None and topo_gpus is not None and workload_gpus != topo_gpus:
+        raise typer.BadParameter(
+            f"GPU count mismatch: workload has {workload_gpus} GPUs "
+            f"but topology has {topo_gpus} GPUs."
+        )
+
+
 @app.command()
 def analytical(
     workload: Annotated[
         Path,
-        typer.Option("--workload", "-w", help="Path to workload file (from workflow generate)."),
+        typer.Option("--workload", "-w", help="Path to workload file (from generate workload)."),
     ],
-    num_gpus: Annotated[
-        int,
-        typer.Option("--num-gpus", "-g", help="Number of GPUs to simulate."),
+    topology: Annotated[
+        Path,
+        typer.Option("--topology", "-n", help="Path to topology directory (from generate topology)."),
     ],
-    gpus_per_server: Annotated[
-        int,
-        typer.Option("--gpus-per-server", help="GPUs per server (NVLink domain size)."),
-    ] = 8,
-    nvlink_bandwidth: Annotated[
-        Optional[float],
-        typer.Option("--nvlink-bandwidth", help="NVLink bandwidth in GB/s."),
-    ] = None,
-    nic_bandwidth: Annotated[
-        Optional[float],
-        typer.Option("--nic-bandwidth", help="NIC bus bandwidth in GB/s."),
-    ] = None,
-    nics_per_server: Annotated[
-        Optional[int],
-        typer.Option("--nics-per-server", help="Number of NICs per server."),
-    ] = None,
-    busbw: Annotated[
+    output: Annotated[
         Optional[Path],
-        typer.Option("--busbw", help="Bus bandwidth YAML file."),
-    ] = None,
-    gpu_type: Annotated[
-        Optional[str],
-        typer.Option("--gpu-type", help="GPU type: A100, H100, H800, etc."),
+        typer.Option("--output", "-o", help="Output directory for result CSV files (default: ./results/)."),
     ] = None,
     dp_overlap: Annotated[
         Optional[float],
@@ -60,23 +80,21 @@ def analytical(
         Optional[str],
         typer.Option("--result-prefix", help="Prefix for result file names."),
     ] = None,
-    output: Annotated[
-        Optional[Path],
-        typer.Option("--output", "-o", help="Output directory for result CSV files (default: ./results/)."),
-    ] = None,
 ):
     """Run the analytical (fast, approximate) network simulation."""
     from simai.backends.analytical import run_analytical
 
+    metadata = _read_metadata(topology)
+    _validate_gpu_count(workload, topology, metadata)
+
     run_analytical(
         workload=workload,
-        num_gpus=num_gpus,
-        gpus_per_server=gpus_per_server,
-        nvlink_bandwidth=nvlink_bandwidth,
-        nic_bandwidth=nic_bandwidth,
-        nics_per_server=nics_per_server,
-        busbw=busbw,
-        gpu_type=gpu_type,
+        num_gpus=metadata["num_gpus"],
+        gpus_per_server=metadata["gpus_per_server"],
+        nvlink_bandwidth=metadata.get("nvlink_bandwidth_gbps"),
+        nic_bandwidth=metadata.get("nic_bandwidth_gbps"),
+        nics_per_server=metadata.get("nics_per_switch"),
+        gpu_type=metadata.get("gpu_type"),
         dp_overlap=dp_overlap,
         tp_overlap=tp_overlap,
         ep_overlap=ep_overlap,
@@ -94,7 +112,7 @@ def ns3(
     ],
     topology: Annotated[
         Path,
-        typer.Option("--topology", "-n", help="Network topology directory."),
+        typer.Option("--topology", "-n", help="Path to topology directory."),
     ],
     config: Annotated[
         Optional[Path],
@@ -124,9 +142,20 @@ def ns3(
     """Run the NS-3 (detailed, packet-level) network simulation."""
     from simai.backends.ns3 import run_ns3
 
+    metadata = _read_metadata(topology)
+    _validate_gpu_count(workload, topology, metadata)
+
+    # Resolve the topology file within the directory
+    topo_file = topology / "topology"
+    if not topo_file.is_file():
+        raise typer.BadParameter(
+            f"No 'topology' file found in directory: {topology}\n"
+            "Did you generate this topology with 'simai generate topology'?"
+        )
+
     run_ns3(
         workload=workload,
-        topology=topology,
+        topology=topo_file,
         config=config,
         threads=threads,
         send_latency=send_latency,
