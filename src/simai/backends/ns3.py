@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -85,9 +86,24 @@ def run_ns3(
 
     # Run from a temp directory to capture output
     with tempfile.TemporaryDirectory(prefix="simai_ns3_") as tmpdir:
+        # Patch config: replace hardcoded /etc/astra-sim/simulation/ paths
+        # with the temp directory so fopen() succeeds
+        patched_config = Path(tmpdir) / "SimAI.conf"
+        with open(config) as f:
+            conf_text = f.read()
+        conf_text = re.sub(
+            r"/etc/astra-sim/simulation/",
+            tmpdir.rstrip("/") + "/",
+            conf_text,
+        )
+        with open(patched_config, "w") as f:
+            f.write(conf_text)
+        # Update args to use patched config
+        args[args.index("-c") + 1] = str(patched_config)
+
         run_binary(BINARY_NAME, args, cwd=tmpdir, env=env, verbose=verbose)
 
-        result_files = list(Path(tmpdir).iterdir())
+        result_files = [f for f in Path(tmpdir).iterdir() if f.name != "SimAI.conf"]
 
         if not result_files:
             print("Warning: no result files generated")
