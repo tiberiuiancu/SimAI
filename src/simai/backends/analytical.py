@@ -22,13 +22,19 @@ def _find_simai_root() -> Path | None:
         if (candidate / "astra-sim-alibabacloud").is_dir():
             return candidate
 
-    # Check relative to the binary location
+    # Check SIMAI_BIN_PATH parent (e.g. <simai>/bin/ → <simai>/)
+    bin_path = os.environ.get("SIMAI_BIN_PATH")
+    if bin_path:
+        candidate = Path(bin_path).resolve().parent
+        if (candidate / "astra-sim-alibabacloud").is_dir():
+            return candidate
+
+    # Check relative to the binary location (follow symlinks)
     try:
         binary = find_binary(BINARY_NAME)
-        # binary might be at <simai>/bin/SimAI_analytical
-        simai_root = binary.resolve().parent.parent
-        if (simai_root / "astra-sim-alibabacloud").is_dir():
-            return simai_root
+        for parent in (binary.parent.parent, binary.resolve().parent.parent):
+            if (parent / "astra-sim-alibabacloud").is_dir():
+                return parent
     except FileNotFoundError:
         pass
 
@@ -93,8 +99,11 @@ def run_analytical(
         args += ["-ep_o", str(ep_overlap)]
     if pp_overlap is not None:
         args += ["-pp_o", str(pp_overlap)]
-    if result_prefix is not None:
-        args += ["-r", result_prefix]
+    # Always pass -r to avoid SIGFPE in the binary's filename parser
+    # when the workload filename doesn't match the expected pattern.
+    if result_prefix is None:
+        result_prefix = workload.stem
+    args += ["-r", result_prefix]
 
     # Determine output directory
     output_dir = Path(output) if output else Path("results")

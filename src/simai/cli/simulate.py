@@ -35,16 +35,6 @@ def _parse_workload_gpu_count(workload: Path) -> int | None:
     return None
 
 
-def _validate_gpu_count(workload: Path, topology_dir: Path, metadata: dict) -> None:
-    """Warn if the workload GPU count doesn't match the topology GPU count."""
-    workload_gpus = _parse_workload_gpu_count(workload)
-    topo_gpus = metadata.get("num_gpus")
-    if workload_gpus is not None and topo_gpus is not None and workload_gpus != topo_gpus:
-        raise typer.BadParameter(
-            f"GPU count mismatch: workload has {workload_gpus} GPUs "
-            f"but topology has {topo_gpus} GPUs."
-        )
-
 
 @app.command()
 def analytical(
@@ -85,11 +75,16 @@ def analytical(
     from simai.backends.analytical import run_analytical
 
     metadata = _read_metadata(topology)
-    _validate_gpu_count(workload, topology, metadata)
+    num_gpus = _parse_workload_gpu_count(workload) or metadata["num_gpus"]
+    if num_gpus != metadata["num_gpus"]:
+        print(
+            f"Warning: GPU count mismatch: workload has {num_gpus} GPUs "
+            f"but topology has {metadata['num_gpus']} GPUs."
+        )
 
     run_analytical(
         workload=workload,
-        num_gpus=metadata["num_gpus"],
+        num_gpus=num_gpus,
         gpus_per_server=metadata["gpus_per_server"],
         nvlink_bandwidth=metadata.get("nvlink_bandwidth_gbps"),
         nic_bandwidth=metadata.get("nic_bandwidth_gbps"),
@@ -143,7 +138,6 @@ def ns3(
     from simai.backends.ns3 import run_ns3
 
     metadata = _read_metadata(topology)
-    _validate_gpu_count(workload, topology, metadata)
 
     # Resolve the topology file within the directory
     topo_file = topology / "topology"
