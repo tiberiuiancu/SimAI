@@ -119,8 +119,27 @@ def workload(
         typer.Option("--output", "-o", help="Output file path (default: auto-generated in ./results/workload/)."),
     ] = None,
 ):
-    """Generate a training workload description file for SimAI simulation."""
+    """Generate a training workload description file for SimAI simulation.
+
+    Compute Timing Modes:
+
+    1. CONSTANT (default): Uses constant placeholder compute times
+       Example: simai generate workload --num-gpus 64 --num-layers 32
+
+    2. PRE-RECORDED: Loads compute times from a pre-recorded profile
+       Example: simai generate workload --compute-profile h100_profile.txt
+
+    3. LIVE PROFILING: Profiles GPU kernels during workload generation
+       Example: simai generate workload --profile-compute
+       Note: Equivalent to running 'simai profile gpu' first, then using
+             the generated profile with --compute-profile
+
+    For best accuracy, use mode 2 or 3 (requires: pip install "simai[profiling]")
+    """
     from simai.workflow.generator import generate_workload
+
+    # Enable aiob profiling if either live profiling or pre-recorded profile is requested
+    aiob_enable = profile_compute or (compute_profile is not None)
 
     generate_workload(
         framework=framework,
@@ -143,7 +162,7 @@ def workload(
         swiglu=swiglu,
         use_distributed_optimizer=distributed_optimizer,
         epoch_num=iterations,
-        aiob_enable=profile_compute,
+        aiob_enable=aiob_enable,
         comp_filepath=str(compute_profile) if compute_profile else None,
         gpu_type=gpu_type,
         output=output,

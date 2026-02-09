@@ -100,104 +100,49 @@ def generate_workload(
 
     Returns the path to the generated workload file.
     """
-    # Compute derived values (mirrors get_params() logic)
-    assert world_size % (tensor_model_parallel_size * pipeline_model_parallel) == 0, (
-        f"world_size ({world_size}) must be divisible by tp*pp "
-        f"({tensor_model_parallel_size}*{pipeline_model_parallel})"
-    )
-    if moe_enable:
-        assert enable_sequence_parallel, "MoE requires --sequence-parallel"
+    # Import shared profiling functions
+    from simai.workflow.profiler import _create_model_args, _create_model, _patch_optional_cuda_modules
 
-    dp_num = world_size // (tensor_model_parallel_size * pipeline_model_parallel)
-    num_microbatches = global_batch // (dp_num * micro_batch)
+    # Patch optional CUDA modules before any aicb imports
+    _patch_optional_cuda_modules()
 
-    if num_attention_heads is None:
-        num_attention_heads = num_layers
-
-    padded_vocab_size = _get_padded_vocab_size(vocab_size, tensor_model_parallel_size)
-    ffn_hidden_size = _compute_ffn_hidden_size(hidden_size, swiglu)
-
-    # Adjust num_layers for pipeline parallelism (same as get_params)
-    effective_num_layers = num_layers
-    if pipeline_model_parallel > 1:
-        effective_num_layers = num_layers // pipeline_model_parallel
-
-    # Build the args namespace that AICB expects
-    args = argparse.Namespace(
-        frame=framework,
+    # Create model configuration using shared function
+    args = _create_model_args(
+        framework=framework,
         world_size=world_size,
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel=pipeline_model_parallel,
         expert_model_parallel_size=expert_model_parallel_size,
         global_batch=global_batch,
         micro_batch=micro_batch,
-        num_layers=effective_num_layers,
+        num_layers=num_layers,
         hidden_size=hidden_size,
         seq_length=seq_length,
         num_attention_heads=num_attention_heads,
         vocab_size=vocab_size,
-        padded_vocab_size=padded_vocab_size,
-        ffn_hidden_size=ffn_hidden_size,
-        dp_num=dp_num,
-        num_microbatches=num_microbatches,
-        # MoE
         moe_enable=moe_enable,
         num_experts=num_experts,
         moe_router_topk=moe_router_topk,
-        moe_grouped_gemm=False,
-        # Optimizations
         enable_sequence_parallel=enable_sequence_parallel,
         use_flash_attn=use_flash_attn,
         swiglu=swiglu,
-        gated_linear_unit=swiglu,
         use_distributed_optimizer=use_distributed_optimizer,
-        # Compute
-        computation_enable=False,
-        aiob_enable=aiob_enable,
-        comp_filepath=comp_filepath,
-        # Misc defaults
-        workload_only=True,
-        epoch_num=epoch_num,
-        pp_rank=-1,
-        add_bias_linear=False,
-        dtype="bfloat16",
-        model_name=gpu_type or "default",
-        gpu_type=gpu_type or "default",
-        max_position_embeddings=4096,
-        make_vocab_size_divisible_by=128,
-        recompute_activations=False,
-        bias_gelu_fusion=False,
-        openai_gelu=False,
-        onnx_safe=False,
-        squared_relu=False,
-        overlap_version=False,
-        context_parallel_size=1,
-        activation_func=None,
-        enable_visual=False,
-        # DeepSeek-specific defaults
-        n_dense_layers=3,
-        n_shared_expert=2,
-        qk_rope_dim=64,
-        qk_nope_dim=128,
-        q_lora_rank=1536,
-        kv_lora_rank=512,
-        v_head_dim=128,
+        gpu_type=gpu_type,
     )
+
+    # Add workload-specific fields
+    args.computation_enable = False
+    args.aiob_enable = aiob_enable
+    args.comp_filepath = comp_filepath
+    args.workload_only = True
+    args.epoch_num = epoch_num
+    args.pp_rank = -1
 
     with _aicb_on_path():
         from workload_generator.SimAI_training_workload_generator import SIMAI_workload
-        from workload_generator.mocked_model.training.MockedMegatron import (
-            MegatronModel,
-        )
-        from workload_generator.mocked_model.training.MockedDeepSeek import (
-            DeepSeekV3Model,
-        )
 
-        # Build model
-        if framework == "DeepSeek":
-            model = DeepSeekV3Model(args)
-        else:
-            model = MegatronModel(args)
+        # Build model using shared function
+        model = _create_model(args)
 
         # Handle compute profiling
         compute_cache = None

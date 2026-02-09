@@ -12,3 +12,12 @@ wheels/
 # Build-time vendored artifacts (populated by hatch_build.py, not tracked)
 src/simai/_vendor/
 src/simai/_binaries/
+
+# Test results
+test_results_*/
+results/
+
+# Slurm job files
+slurm-*.out
+*.sbatch.out
+*.sbatch.err
