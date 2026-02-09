@@ -1,6 +1,6 @@
 [project]
 name = "simai"
-version = "0.2.8"
+version = "0.3.0"
 description = "Python wrapper for SimAI datacenter network simulator"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -8,6 +8,8 @@ dependencies = [
     "typer>=0.15",
     "numpy>=1.26",
     "pandas>=2.0",
+    "torch",
+    "torchvision",
 ]
 
 [project.optional-dependencies]

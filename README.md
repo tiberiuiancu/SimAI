@@ -35,6 +35,47 @@ simai generate workload \
     -o workload.txt
 ```
 
+### 1a. Profile GPU kernels (optional)
+
+For accurate compute time modeling, profile GPU kernel execution:
+
+```bash
+simai profile gpu \
+    --framework Megatron \
+    --num-gpus 64 \
+    --num-layers 32 \
+    --hidden-size 4096 \
+    --gpu-type H100 \
+    -o h100_profile.txt
+```
+
+Requirements:
+- PyTorch with CUDA: `pip install "simai[profiling]"`
+- CUDA-capable GPU
+
+Then use the profile when generating workloads:
+
+```bash
+simai generate workload --compute-profile h100_profile.txt \
+    --num-gpus 64 --tensor-parallel 4 \
+    --pipeline-parallel 2 \
+    --num-layers 32 \
+    --hidden-size 4096 \
+    --sequence-length 2048 \
+    --iter 10 \
+    -o workload.txt
+```
+
+#### Compute timing modes
+
+Workload generation supports three modes for compute times:
+
+1. **Constant times** (default): Fast but approximate placeholder values
+2. **Pre-recorded profile**: Use a profile from `simai profile gpu` (recommended)
+3. **Live profiling**: Add `--profile-compute` flag (equivalent to mode 2)
+
+Mode 2 is recommended for production use as it separates profiling from workload generation.
+
 ### 2. Generate a topology
 
 ```bash
