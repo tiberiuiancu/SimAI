@@ -98,6 +98,12 @@ def run_ns3(
         )
         with open(patched_config, "w") as f:
             f.write(conf_text)
+
+        # Create dummy input files that the simulator expects to exist
+        # These are referenced in the config but may not be used by all workloads
+        (Path(tmpdir) / "flow1.txt").touch()
+        (Path(tmpdir) / "trace1.txt").touch()
+
         # Update args to use patched config
         args[args.index("-c") + 1] = str(patched_config)
 
