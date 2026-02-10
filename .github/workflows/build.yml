@@ -100,7 +100,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/ns3-deps
-          key: ns3-manylinux2014-${{ steps.submodule-hash.outputs.hash }}
+          key: ns3-manylinux2014-release-${{ steps.submodule-hash.outputs.hash }}
 
       - name: Build ns3 in manylinux container
         if: steps.cache-ns3.outputs.cache-hit != 'true'
