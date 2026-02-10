@@ -73,7 +73,10 @@ def run_ns3(
     ]
 
     # Build environment variables for the binary
-    env: dict[str, str] = {}
+    env: dict[str, str] = {
+        # Disable logging to /etc/astra-sim/SimAI.log (requires root to create)
+        "AS_LOG_LEVEL": "0",
+    }
     if send_latency is not None:
         env["AS_SEND_LAT"] = str(send_latency)
     if nvls:
@@ -95,7 +98,7 @@ def run_ns3(
             conf_text = f.read()
         conf_text = re.sub(
             r"/etc/astra-sim/simulation/",
-            "",  # Replace with empty string to make paths relative
+            tmpdir.rstrip("/") + "/"
             conf_text,
         )
         with open(patched_config, "w") as f:
