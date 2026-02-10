@@ -87,13 +87,15 @@ def run_ns3(
     # Run from a temp directory to capture output
     with tempfile.TemporaryDirectory(prefix="simai_ns3_") as tmpdir:
         # Patch config: replace hardcoded /etc/astra-sim/simulation/ paths
-        # with the temp directory so fopen() succeeds
+        # with relative paths (relative to cwd=tmpdir where the binary runs).
+        # Using relative paths instead of absolute paths avoids potential buffer
+        # overflow issues in the C++ binary's path handling code.
         patched_config = Path(tmpdir) / "SimAI.conf"
         with open(config) as f:
             conf_text = f.read()
         conf_text = re.sub(
             r"/etc/astra-sim/simulation/",
-            tmpdir.rstrip("/") + "/",
+            "",  # Replace with empty string to make paths relative
             conf_text,
         )
         with open(patched_config, "w") as f:
