@@ -28,7 +28,7 @@ class CustomBuildHook(BuildHookInterface):
                 shutil.rmtree(aicb_dest)
             # Copy the required subdirectories
             aicb_dest.mkdir(parents=True, exist_ok=True)
-            for subdir in ("workload_generator", "utils", "log_analyzer", "training"):
+            for subdir in ("workload_generator", "utils", "log_analyzer", "training", "core"):
                 src = aicb_src / subdir
                 if src.is_dir():
                     shutil.copytree(src, aicb_dest / subdir, dirs_exist_ok=True)

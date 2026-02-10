@@ -4,13 +4,11 @@ Python wrapper for the [SimAI](https://github.com/aliyun/SimAI) datacenter netwo
 
 ## Installation
 
-Install the latest wheel from [GitHub Releases](https://github.com/tiberiuiancu/SimAI/releases):
+Install from PyPI:
 
 ```bash
-pip install simai@"https://github.com/tiberiuiancu/SimAI/releases/download/VERSION/simai-VERSION-py3-none-manylinux_2_35_x86_64.whl"
+pip install simai
 ```
-
-Replace `VERSION` with the desired release version (e.g. `v0.2.7` in the URL path and `0.2.7` in the filename).
 
 For GPU compute profiling (optional, requires CUDA):
 
