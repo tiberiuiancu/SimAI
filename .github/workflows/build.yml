@@ -100,7 +100,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/ns3-deps
-          key: ns3-manylinux2014-${{ steps.submodule-hash.outputs.hash }}
+          key: ns3-manylinux2014-release-${{ steps.submodule-hash.outputs.hash }}
 
       - name: Build ns3 in manylinux container
         if: steps.cache-ns3.outputs.cache-hit != 'true'
@@ -128,11 +128,15 @@ jobs:
             rm -rf extern/network_backend/ns3-interface/simulation/src/applications/astra-sim
             cp -r astra-sim extern/network_backend/ns3-interface/simulation/src/applications/
             cd extern/network_backend/ns3-interface/simulation
-            ./ns3 configure -d debug --enable-mtp
+            ./ns3 configure -d release --enable-mtp
             ./ns3 build
 
+            # Strip binaries to reduce size
+            strip build/scratch/ns3.36.1-AstraSimNetwork 2>/dev/null || true
+            strip build/lib/libns3*.so 2>/dev/null || true
+
             # Collect dependencies
-            NS3_BIN=build/scratch/ns3.36.1-AstraSimNetwork-debug
+            NS3_BIN=build/scratch/ns3.36.1-AstraSimNetwork
             NS3_LIBS=build/lib
             mkdir -p /workspace/build/ns3-deps
             cp "$NS3_BIN" /workspace/build/ns3-deps/
@@ -186,14 +190,26 @@ jobs:
 
       - name: Prepare binaries
         run: |
-          mv build/bin/ns3.36.1-AstraSimNetwork-debug build/bin/SimAI_simulator
+          mv build/bin/ns3.36.1-AstraSimNetwork build/bin/SimAI_simulator
           chmod +x build/bin/*
+          # Strip analytical binary too
+          strip build/bin/SimAI_analytical 2>/dev/null || true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
       - name: Build wheel
         run: SIMAI_PLATFORM_TAG=manylinux_2_17_x86_64 uv build --wheel
+
+      - name: Check wheel size
+        run: |
+          wheel_size=$(stat -c%s dist/*.whl)
+          wheel_size_mb=$((wheel_size / 1024 / 1024))
+          echo "Wheel size: ${wheel_size_mb} MB"
+          if [ $wheel_size -gt 104857600 ]; then
+            echo "ERROR: Wheel size (${wheel_size_mb} MB) exceeds PyPI limit of 100 MB"
+            exit 1
+          fi
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
