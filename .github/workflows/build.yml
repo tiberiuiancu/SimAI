@@ -70,6 +70,13 @@ jobs:
           docker run --rm -v $PWD:/workspace -w /workspace quay.io/pypa/manylinux2014_x86_64 bash -c "
             yum install -y gcc gcc-c++ cmake3 make
             ln -sf /usr/bin/cmake3 /usr/bin/cmake || true
+
+            # Patch hardcoded paths for configurable runtime paths
+            cd /workspace
+            chmod +x scripts/patch_paths.sh
+            ./scripts/patch_paths.sh vendor/simai/astra-sim-alibabacloud
+
+            # Build with relative paths
             cd vendor/simai/astra-sim-alibabacloud/build/simai_analytical
             mkdir -p build && cd build
             cmake -DUSE_ANALYTICAL=TRUE ..
@@ -114,6 +121,10 @@ jobs:
             # Copy ns3 source
             mkdir -p vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface
             cp -r vendor/simai/ns-3-alibabacloud/* vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface/
+
+            # Patch hardcoded paths for configurable runtime paths
+            chmod +x scripts/patch_paths.sh
+            ./scripts/patch_paths.sh vendor/simai/astra-sim-alibabacloud
 
             # Build AstraSim library
             cd vendor/simai/astra-sim-alibabacloud/build/astra_ns3
