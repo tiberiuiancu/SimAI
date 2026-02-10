@@ -48,6 +48,13 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.changed == 'true' || inputs.force == true
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - manylinux_tag: manylinux_2_17_x86_64
+            container_image: quay.io/pypa/manylinux2014_x86_64
+          - manylinux_tag: manylinux_2_28_x86_64
+            container_image: quay.io/pypa/manylinux_2_28_x86_64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,14 +69,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vendor/simai/astra-sim-alibabacloud/build/simai_analytical/build/simai_analytical/SimAI_analytical
-          key: analytical-manylinux2014-${{ steps.submodule-hash.outputs.hash }}
+          key: analytical-${{ matrix.manylinux_tag }}-${{ steps.submodule-hash.outputs.hash }}
 
       - name: Build SimAI_analytical in manylinux container
         if: steps.cache-analytical.outputs.cache-hit != 'true'
         run: |
-          docker run --rm -v $PWD:/workspace -w /workspace quay.io/pypa/manylinux2014_x86_64 bash -c "
+          docker run --rm -v $PWD:/workspace -w /workspace ${{ matrix.container_image }} bash -c "
             yum install -y gcc gcc-c++ cmake3 make
-            ln -sf /usr/bin/cmake3 /usr/bin/cmake
+            ln -sf /usr/bin/cmake3 /usr/bin/cmake || true
             cd vendor/simai/astra-sim-alibabacloud/build/simai_analytical
             mkdir -p build && cd build
             cmake -DUSE_ANALYTICAL=TRUE ..
@@ -79,7 +86,7 @@ jobs:
       - name: Upload analytical binary
         uses: actions/upload-artifact@v4
         with:
-          name: SimAI_analytical
+          name: SimAI_analytical-${{ matrix.manylinux_tag }}
           path: vendor/simai/astra-sim-alibabacloud/build/simai_analytical/build/simai_analytical/SimAI_analytical
 
   build-ns3:
@@ -113,10 +120,10 @@ jobs:
         if: steps.cache-ns3.outputs.cache-hit != 'true'
         run: |
           docker run --rm -v $PWD:/workspace -w /workspace ${{ matrix.container_image }} bash -c '
-            set -e
             # Install dependencies
             yum install -y gcc gcc-c++ cmake3 make libxml2-devel sqlite-devel gsl-devel
-            ln -sf /usr/bin/cmake3 /usr/bin/cmake
+            ln -sf /usr/bin/cmake3 /usr/bin/cmake || true
+            set -e
 
             # Copy ns3 source
             mkdir -p vendor/simai/astra-sim-alibabacloud/extern/network_backend/ns3-interface
@@ -185,7 +192,7 @@ jobs:
       - name: Download analytical binary
         uses: actions/download-artifact@v4
         with:
-          name: SimAI_analytical
+          name: SimAI_analytical-${{ matrix.manylinux_tag }}
           path: build/bin
 
       - name: Download ns3 binary and libraries
