@@ -48,13 +48,6 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.changed == 'true' || inputs.force == true
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - manylinux_tag: manylinux_2_17_x86_64
-            container_image: quay.io/pypa/manylinux2014_x86_64
-          - manylinux_tag: manylinux_2_28_x86_64
-            container_image: quay.io/pypa/manylinux_2_28_x86_64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,12 +62,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vendor/simai/astra-sim-alibabacloud/build/simai_analytical/build/simai_analytical/SimAI_analytical
-          key: analytical-${{ matrix.manylinux_tag }}-${{ steps.submodule-hash.outputs.hash }}
+          key: analytical-manylinux2014-${{ steps.submodule-hash.outputs.hash }}
 
-      - name: Build SimAI_analytical in manylinux container
+      - name: Build SimAI_analytical
         if: steps.cache-analytical.outputs.cache-hit != 'true'
         run: |
-          docker run --rm -v $PWD:/workspace -w /workspace ${{ matrix.container_image }} bash -c "
+          docker run --rm -v $PWD:/workspace -w /workspace quay.io/pypa/manylinux2014_x86_64 bash -c "
             yum install -y gcc gcc-c++ cmake3 make
             ln -sf /usr/bin/cmake3 /usr/bin/cmake || true
             cd vendor/simai/astra-sim-alibabacloud/build/simai_analytical
@@ -86,20 +79,13 @@ jobs:
       - name: Upload analytical binary
         uses: actions/upload-artifact@v4
         with:
-          name: SimAI_analytical-${{ matrix.manylinux_tag }}
+          name: SimAI_analytical
           path: vendor/simai/astra-sim-alibabacloud/build/simai_analytical/build/simai_analytical/SimAI_analytical
 
   build-ns3:
     needs: check-version
     if: needs.check-version.outputs.changed == 'true' || inputs.force == true
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - manylinux_tag: manylinux_2_17_x86_64
-            container_image: quay.io/pypa/manylinux2014_x86_64
-          - manylinux_tag: manylinux_2_28_x86_64
-            container_image: quay.io/pypa/manylinux_2_28_x86_64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -114,12 +100,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/ns3-deps
-          key: ns3-${{ matrix.manylinux_tag }}-${{ steps.submodule-hash.outputs.hash }}
+          key: ns3-manylinux2014-${{ steps.submodule-hash.outputs.hash }}
 
       - name: Build ns3 in manylinux container
         if: steps.cache-ns3.outputs.cache-hit != 'true'
         run: |
-          docker run --rm -v $PWD:/workspace -w /workspace ${{ matrix.container_image }} bash -c '
+          docker run --rm -v $PWD:/workspace -w /workspace quay.io/pypa/manylinux2014_x86_64 bash -c '
             # Install dependencies
             yum install -y gcc gcc-c++ cmake3 make libxml2-devel sqlite-devel gsl-devel
             ln -sf /usr/bin/cmake3 /usr/bin/cmake || true
@@ -175,15 +161,12 @@ jobs:
       - name: Upload ns3 binary and shared libraries
         uses: actions/upload-artifact@v4
         with:
-          name: SimAI_simulator-${{ matrix.manylinux_tag }}
+          name: SimAI_simulator
           path: build/ns3-deps/
 
   build-wheel:
     runs-on: ubuntu-latest
     needs: [check-version, build-analytical, build-ns3]
-    strategy:
-      matrix:
-        manylinux_tag: [manylinux_2_17_x86_64, manylinux_2_28_x86_64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -192,13 +175,13 @@ jobs:
       - name: Download analytical binary
         uses: actions/download-artifact@v4
         with:
-          name: SimAI_analytical-${{ matrix.manylinux_tag }}
+          name: SimAI_analytical
           path: build/bin
 
       - name: Download ns3 binary and libraries
         uses: actions/download-artifact@v4
         with:
-          name: SimAI_simulator-${{ matrix.manylinux_tag }}
+          name: SimAI_simulator
           path: build/bin
 
       - name: Prepare binaries
@@ -210,12 +193,12 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Build wheel
-        run: SIMAI_PLATFORM_TAG=${{ matrix.manylinux_tag }} uv build --wheel
+        run: SIMAI_PLATFORM_TAG=manylinux_2_17_x86_64 uv build --wheel
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.manylinux_tag }}
+          name: wheel
           path: dist/*.whl
 
   release:
@@ -232,12 +215,11 @@ jobs:
           git tag "v${{ needs.check-version.outputs.version }}"
           git push origin "v${{ needs.check-version.outputs.version }}"
 
-      - name: Download all wheels
+      - name: Download wheel
         uses: actions/download-artifact@v4
         with:
-          pattern: wheel-*
+          name: wheel
           path: dist
-          merge-multiple: true
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -252,12 +234,11 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - name: Download all wheels
+      - name: Download wheel
         uses: actions/download-artifact@v4
         with:
-          pattern: wheel-*
+          name: wheel
           path: dist
-          merge-multiple: true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
