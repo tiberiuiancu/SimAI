@@ -46,6 +46,7 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.changed == 'true' || inputs.force == true
     runs-on: ubuntu-latest
+    container: quay.io/pypa/manylinux2014_x86_64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,11 +61,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vendor/simai/astra-sim-alibabacloud/build/simai_analytical/build/simai_analytical/SimAI_analytical
-          key: analytical-${{ steps.submodule-hash.outputs.hash }}
+          key: analytical-manylinux2014-${{ steps.submodule-hash.outputs.hash }}
 
       - name: Install build dependencies
         if: steps.cache-analytical.outputs.cache-hit != 'true'
-        run: sudo apt-get update && sudo apt-get install -y gcc g++ cmake make
+        run: |
+          if command -v yum &> /dev/null; then
+            yum install -y gcc gcc-c++ cmake3 make
+            ln -sf /usr/bin/cmake3 /usr/bin/cmake || true
+          elif command -v apt-get &> /dev/null; then
+            apt-get update && apt-get install -y gcc g++ cmake make
+          fi
 
       - name: Build SimAI_analytical
         if: steps.cache-analytical.outputs.cache-hit != 'true'
@@ -84,6 +91,16 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.changed == 'true' || inputs.force == true
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - manylinux_tag: manylinux_2_17_x86_64
+            container: quay.io/pypa/manylinux2014_x86_64
+          - manylinux_tag: manylinux_2_28_x86_64
+            container: quay.io/pypa/manylinux_2_28_x86_64
+          - manylinux_tag: manylinux_2_35_x86_64
+            container: null
+    container: ${{ matrix.container }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -98,11 +115,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/ns3-deps
-          key: ns3-${{ steps.submodule-hash.outputs.hash }}
+          key: ns3-${{ matrix.manylinux_tag }}-${{ steps.submodule-hash.outputs.hash }}
 
       - name: Install build dependencies
         if: steps.cache-ns3.outputs.cache-hit != 'true'
-        run: sudo apt-get update && sudo apt-get install -y gcc g++ cmake make libxml2-dev libsqlite3-dev libgsl-dev
+        run: |
+          if command -v yum &> /dev/null; then
+            yum install -y gcc gcc-c++ cmake3 make libxml2-devel sqlite-devel gsl-devel
+            ln -sf /usr/bin/cmake3 /usr/bin/cmake || true
+          elif command -v apt-get &> /dev/null; then
+            apt-get update && apt-get install -y gcc g++ cmake make libxml2-dev libsqlite3-dev libgsl-dev
+          fi
 
       - name: Copy ns3 source into extern dir
         if: steps.cache-ns3.outputs.cache-hit != 'true'
@@ -161,12 +184,15 @@ jobs:
       - name: Upload ns3 binary and shared libraries
         uses: actions/upload-artifact@v4
         with:
-          name: SimAI_simulator
+          name: SimAI_simulator-${{ matrix.manylinux_tag }}
           path: build/ns3-deps/
 
   build-wheel:
     runs-on: ubuntu-latest
     needs: [check-version, build-analytical, build-ns3]
+    strategy:
+      matrix:
+        manylinux_tag: [manylinux_2_17_x86_64, manylinux_2_28_x86_64, manylinux_2_35_x86_64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -181,7 +207,7 @@ jobs:
       - name: Download ns3 binary and libraries
         uses: actions/download-artifact@v4
         with:
-          name: SimAI_simulator
+          name: SimAI_simulator-${{ matrix.manylinux_tag }}
           path: build/bin
 
       - name: Prepare binaries
@@ -193,12 +219,12 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Build wheel
-        run: SIMAI_PLATFORM_TAG=manylinux_2_35_x86_64 uv build --wheel
+        run: SIMAI_PLATFORM_TAG=${{ matrix.manylinux_tag }} uv build --wheel
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheel
+          name: wheel-${{ matrix.manylinux_tag }}
           path: dist/*.whl
 
   release:
@@ -214,14 +240,31 @@ jobs:
           git tag "v${{ needs.check-version.outputs.version }}"
           git push origin "v${{ needs.check-version.outputs.version }}"
 
-      - name: Download wheel
+      - name: Download all wheels
         uses: actions/download-artifact@v4
         with:
-          name: wheel
+          pattern: wheel-*
           path: dist
+          merge-multiple: true
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.check-version.outputs.version }}
           files: dist/*.whl
+
+  publish-pypi:
+    runs-on: ubuntu-latest
+    needs: [check-version, build-wheel, release]
+    permissions:
+      id-token: write
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
