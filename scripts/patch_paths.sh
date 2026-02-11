@@ -36,5 +36,10 @@ echo "Patching SimAI.conf..."
 sed -i.bak 's|/etc/astra-sim/|./|g' \
     "$VENDOR_DIR/inputs/config/SimAI.conf"
 
+# Patch common.h - replace hardcoded /root/astra-sim path with relative path
+echo "Patching common.h..."
+sed -i.bak 's|string total_flow_file = "/root/astra-sim/extern/network_backend/ns3-interface/simulation/monitor_output/";|string total_flow_file = "./monitor_output/";|g' \
+    "$VENDOR_DIR/astra-sim/network_frontend/ns3/common.h"
+
 echo "=== Patching complete ==="
 echo "Note: .bak files created for reference, vendor changes are temporary"
