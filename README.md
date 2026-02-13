@@ -101,6 +101,25 @@ simai simulate ns3 \
     -o results/
 ```
 
+### Installing a dev version
+
+Dev builds are published to TestPyPI on every push to the `dev` branch:
+
+```bash
+pip install --pre \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  simai
+```
+
+Or pin a specific dev build:
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  "simai==0.3.12.dev42"
+```
+
 ## Output files
 
 ### Analytical backend
@@ -156,6 +175,7 @@ natively with `cmake`/`make` otherwise. Then it runs `uv build --wheel`.
 | *(none)* | Build binaries if missing, then build wheel |
 | `--no-bin` | Skip binary build (use whatever is in `build/bin/`) |
 | `--docker` | Force manylinux Docker build (same environment as CI) |
+| `--native` | Force native build (skips Docker even if available) |
 
 After any Python-only change:
 ```bash

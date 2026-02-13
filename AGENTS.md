@@ -415,19 +415,41 @@ topology_dir/
 
 **File**: `.github/workflows/build.yml`
 
-**Triggers**: Push to main when `pyproject.toml` changes, PRs to main, manual dispatch.
+**Triggers**: Push to `main` or `dev`, PRs to `main` or `dev`, manual dispatch.
+
+### Dev Branch & TestPyPI
+
+There are two publish tracks:
+
+| Branch | Version format | Publishes to | GitHub release |
+|--------|---------------|--------------|----------------|
+| `main` | `X.Y.Z` (from `pyproject.toml`) | PyPI | Yes (tag + release) |
+| `dev`  | `X.Y.Z.dev{run_number}` (auto-generated) | TestPyPI | No |
+
+**How dev versioning works**: On every push to `dev`, the `build-wheel` job patches
+`pyproject.toml` with a PEP 440 dev version (`{base}.dev{GITHUB_RUN_NUMBER}`) before
+running `uv build --wheel`. The source file is not committed — it's a transient in-CI edit.
+
+**Build gating**:
+- `main`: builds only when `pyproject.toml` version changes (or `force` dispatch input)
+- `dev`: always builds (no version-change gate)
 
 **Jobs** (in order):
 
-1. **check-version**: Reads version from `pyproject.toml`, determines if changed
+1. **check-version**: Reads version from `pyproject.toml`, determines if changed, detects branch (`is_dev` output)
 2. **build-analytical**: manylinux2014 Docker, applies path patches, CMake, caches by submodule commit
 3. **build-ns3**: manylinux2014 Docker, installs libxml2/sqlite/gsl, builds NS-3 debug + MTP,
    strips symbols, bundles `libns3*.so` shared libraries, caches by submodule commit
-4. **build-wheel**: Downloads binaries from artifacts, `uv build --wheel`, enforces <100MB PyPI limit
-5. **release**: Creates git tag `v<version>`, GitHub release with wheel attached
-6. **publish-pypi**: OIDC authentication, publishes to PyPI
+4. **build-wheel**: Downloads binaries from artifacts, patches version (dev only), `uv build --wheel`, enforces <100MB PyPI limit
+5. **release**: Creates git tag `v<version>`, GitHub release with wheel attached *(main only)*
+6. **publish-pypi**: OIDC authentication, publishes to PyPI *(main only)*
+7. **publish-testpypi**: OIDC authentication, publishes to TestPyPI *(dev only)*
 
 Binaries are renamed during wheel build: `ns3.36.1-AstraSimNetwork-debug` → `SimAI_simulator`
+
+**One-time setup for `dev` branch**:
+1. `git checkout -b dev main && git push -u origin dev`
+2. Configure trusted publishing on test.pypi.org for this repo (OIDC, same as PyPI setup)
 
 ---
 
@@ -460,3 +482,4 @@ simai simulate ns3 -w workload_gpt175b.txt -n topology_h100_128gpu/ \
 ---
 
 **Last Updated**: 2026-02-13 | **Human reference**: [`README.md`](./README.md)
+

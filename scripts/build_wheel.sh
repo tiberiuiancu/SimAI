@@ -24,10 +24,12 @@ NS3_SRC="vendor/simai/ns-3-alibabacloud"
 
 SKIP_BIN=false
 FORCE_DOCKER=false
+FORCE_NATIVE=false
 for arg in "$@"; do
   case "$arg" in
     --no-bin)   SKIP_BIN=true ;;
     --docker)   FORCE_DOCKER=true ;;
+    --native)   FORCE_NATIVE=true ;;
   esac
 done
 
@@ -167,7 +169,10 @@ build_binaries_native() {
 }
 
 build_binaries() {
-  if $FORCE_DOCKER || has docker; then
+  if $FORCE_NATIVE; then
+    log "Native build forced via --native flag."
+    build_binaries_native
+  elif $FORCE_DOCKER || has docker; then
     $FORCE_DOCKER && log "Docker forced via --docker flag."
     build_binaries_docker
   else
