@@ -132,17 +132,41 @@ This wrapper automates the manual setup that upstream SimAI requires:
 
 ## Building from source
 
-Requires the SimAI submodule and compiled binaries:
+Requires the SimAI submodule and compiled binaries.
 
 ```bash
 git clone --recurse-submodules https://github.com/tiberiuiancu/SimAI.git
 cd SimAI
 
-# Build binaries (see vendor/simai/scripts/build.sh)
-# Place SimAI_analytical and SimAI_simulator in build/bin/
+# Install dev environment
+uv sync
 
-SIMAI_PLATFORM_TAG=manylinux_2_35_x86_64 pip install build
-python -m build --wheel
+# Build binaries (if missing) and the wheel
+./scripts/build_wheel.sh
+```
+
+`scripts/build_wheel.sh` checks whether pre-built binaries already exist in `build/bin/`.
+If not, it compiles them — via a manylinux Docker container if `docker` is available, or
+natively with `cmake`/`make` otherwise. Then it runs `uv build --wheel`.
+
+**Flags:**
+
+| Flag | Effect |
+|------|--------|
+| *(none)* | Build binaries if missing, then build wheel |
+| `--no-bin` | Skip binary build (use whatever is in `build/bin/`) |
+| `--docker` | Force manylinux Docker build (same environment as CI) |
+
+After any Python-only change:
+```bash
+./scripts/build_wheel.sh --no-bin
 ```
 
 Or just push to GitHub — the CI workflow compiles the binaries and produces the wheel automatically.
+
+---
+
+## Contributing / Agent reference
+
+For AI agents and contributors who want a detailed architectural reference without exploring
+the codebase from scratch, see [`AGENTS.md`](./AGENTS.md).

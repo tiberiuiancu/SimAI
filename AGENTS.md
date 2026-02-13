@@ -60,6 +60,7 @@ simai/
 │   └── simai-m4/           # Local (untracked) copy of upstream SimAI with m4 integration
 │                           # Used for testing m4 (gray failure) integration. NOT a submodule.
 ├── scripts/
+│   ├── build_wheel.sh      # Local wheel build script (mirrors CI): builds binaries + wheel
 │   ├── patch_paths.sh      # Patch hardcoded C++ paths (/etc/astra-sim/, /root/astra-sim/)
 │   └── restore_paths.sh    # Restore original vendor files from backups
 ├── tests/
@@ -219,7 +220,31 @@ Runs automatically during `hatch build` / `uv build`:
 2. **`finalize()`** (after build):
    - Deletes `src/simai/_vendor/` and `src/simai/_binaries/` (not tracked in git)
 
-### Binary Compilation
+### Local Wheel Build (`scripts/build_wheel.sh`)
+
+Mirrors the CI pipeline. Builds missing binaries then calls `uv build --wheel`.
+
+```bash
+# Full build: binaries (if missing) + wheel
+./scripts/build_wheel.sh
+
+# Python-only change — skip binary compilation
+./scripts/build_wheel.sh --no-bin
+
+# Force manylinux Docker (identical to CI environment)
+./scripts/build_wheel.sh --docker
+
+# Rebuild binaries from scratch
+rm -rf build/bin && ./scripts/build_wheel.sh --docker
+```
+
+Binary detection: if `build/bin/SimAI_analytical` **and** `build/bin/SimAI_simulator` both
+exist the binary build is skipped automatically (no flag needed).
+
+Build tool priority: Docker (`quay.io/pypa/manylinux2014_x86_64`) if available, then native
+`cmake`/`make`.
+
+### Binary Compilation (upstream scripts)
 
 ```bash
 # Analytical backend (in vendor/simai/scripts/)
@@ -434,4 +459,4 @@ simai simulate ns3 -w workload_gpt175b.txt -n topology_h100_128gpu/ \
 
 ---
 
-**Last Updated**: 2026-02-13
+**Last Updated**: 2026-02-13 | **Human reference**: [`README.md`](./README.md)
