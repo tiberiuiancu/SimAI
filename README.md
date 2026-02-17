@@ -16,6 +16,26 @@ For GPU compute profiling (optional, requires CUDA):
 pip install "simai[profiling]"
 ```
 
+For the M4 (flow-level, ML-based) simulation backend:
+
+```bash
+pip install "simai[m4]"      # installs torch dependency
+simai install m4             # compiles SimAI_m4 binary (requires CUDA torch + cmake/make/gcc)
+```
+
+> **Note**: The M4 binary (`SimAI_m4`) is **not** included in the PyPI wheel. Run
+> `simai install m4` to compile it from source (requires CUDA-enabled PyTorch and cmake/make/gcc).
+> On first run the source is cloned automatically from GitHub into `~/.cache/simai/simai-m4/`;
+> subsequent runs reuse that cache. For editable installs the local `vendor/simai-m4/` tree is
+> used instead. Pass `--src /path/to/simai-m4` to override, or set `LIBTORCH_DIR` to point to a
+> custom LibTorch. The `[m4]` extra pins `torch<2.7` — versions ≥2.7 are not yet supported.
+>
+> Use `--n-flows-max N` (default: 500 000) to raise the maximum concurrent-flow capacity before
+> compilation. The upstream default of 50 000 is too low for large workloads and causes a crash:
+> ```bash
+> simai install m4 --force --n-flows-max 1000000
+> ```
+
 ## Usage
 
 ### 1. Generate a workload
@@ -101,6 +121,34 @@ simai simulate ns3 \
     -o results/
 ```
 
+**M4** (flow-level, ML-based gray failure, requires local build — see installation note above):
+
+```bash
+simai simulate m4 \
+    -w workload.txt \
+    -n my_topo/ \
+    -o results/
+```
+
+### Installing a dev version
+
+Dev builds are published to TestPyPI on every push to the `dev` branch:
+
+```bash
+pip install --pre \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  simai
+```
+
+Or pin a specific dev build:
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  "simai==0.3.12.dev42"
+```
+
 ## Output files
 
 ### Analytical backend
@@ -132,17 +180,42 @@ This wrapper automates the manual setup that upstream SimAI requires:
 
 ## Building from source
 
-Requires the SimAI submodule and compiled binaries:
+Requires the SimAI submodule and compiled binaries.
 
 ```bash
 git clone --recurse-submodules https://github.com/tiberiuiancu/SimAI.git
 cd SimAI
 
-# Build binaries (see vendor/simai/scripts/build.sh)
-# Place SimAI_analytical and SimAI_simulator in build/bin/
+# Install dev environment
+uv sync
 
-SIMAI_PLATFORM_TAG=manylinux_2_35_x86_64 pip install build
-python -m build --wheel
+# Build binaries (if missing) and the wheel
+./scripts/build_wheel.sh
+```
+
+`scripts/build_wheel.sh` checks whether pre-built binaries already exist in `build/bin/`.
+If not, it compiles them — via a manylinux Docker container if `docker` is available, or
+natively with `cmake`/`make` otherwise. Then it runs `uv build --wheel`.
+
+**Flags:**
+
+| Flag | Effect |
+|------|--------|
+| *(none)* | Build binaries if missing, then build wheel |
+| `--no-bin` | Skip binary build (use whatever is in `build/bin/`) |
+| `--docker` | Force manylinux Docker build (same environment as CI) |
+| `--native` | Force native build (skips Docker even if available) |
+
+After any Python-only change:
+```bash
+./scripts/build_wheel.sh --no-bin
 ```
 
 Or just push to GitHub — the CI workflow compiles the binaries and produces the wheel automatically.
+
+---
+
+## Contributing / Agent reference
+
+For AI agents and contributors who want a detailed architectural reference without exploring
+the codebase from scratch, see [`AGENTS.md`](./AGENTS.md).

@@ -2,11 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [main]
-    paths:
-      - pyproject.toml
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
     inputs:
       force:
@@ -20,10 +18,20 @@ jobs:
     outputs:
       version: ${{ steps.current.outputs.version }}
       changed: ${{ steps.check.outputs.changed }}
+      is_dev: ${{ steps.branch.outputs.is_dev }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+
+      - name: Detect branch
+        id: branch
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/dev" ]]; then
+            echo "is_dev=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_dev=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Get current version
         id: current
@@ -46,7 +54,7 @@ jobs:
 
   build-analytical:
     needs: check-version
-    if: needs.check-version.outputs.changed == 'true' || inputs.force == true
+    if: (needs.check-version.outputs.changed == 'true' || inputs.force == true) || needs.check-version.outputs.is_dev == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,7 +99,7 @@ jobs:
 
   build-ns3:
     needs: check-version
-    if: needs.check-version.outputs.changed == 'true' || inputs.force == true
+    if: (needs.check-version.outputs.changed == 'true' || inputs.force == true) || needs.check-version.outputs.is_dev == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -182,6 +190,7 @@ jobs:
   build-wheel:
     runs-on: ubuntu-latest
     needs: [check-version, build-analytical, build-ns3]
+    if: (needs.check-version.outputs.changed == 'true' || inputs.force == true) || needs.check-version.outputs.is_dev == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -208,6 +217,14 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+
+      - name: Patch version for dev
+        if: needs.check-version.outputs.is_dev == 'true'
+        run: |
+          base=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          dev_version="${base}.dev${{ github.run_number }}"
+          sed -i "s/^version = \".*\"/version = \"$dev_version\"/" pyproject.toml
+          echo "Dev version: $dev_version"
 
       - name: Build wheel
         run: SIMAI_PLATFORM_TAG=manylinux_2_17_x86_64 uv build --wheel
@@ -269,3 +286,21 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-testpypi:
+    runs-on: ubuntu-latest
+    needs: [check-version, build-wheel]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    permissions:
+      id-token: write
+    steps:
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: dist
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/

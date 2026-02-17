@@ -71,8 +71,10 @@ class CustomBuildHook(BuildHookInterface):
                 if binary.is_file():
                     dest = bin_dest / binary.name
                     shutil.copy2(binary, dest)
-                    # Ensure executable
                     dest.chmod(dest.stat().st_mode | 0o111)
+                    # Strip debug symbols to reduce wheel size
+                    import subprocess as _sp
+                    _sp.run(["strip", str(dest)], capture_output=True)
 
         # --- Force-include dynamically created directories ---
         # Hatchling uses git to decide what goes in the wheel, so files

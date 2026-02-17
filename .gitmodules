@@ -1,3 +1,6 @@
 [submodule "vendor/simai"]
 	path = vendor/simai
 	url = https://github.com/aliyun/SimAI.git
+[submodule "vendor/simai-m4"]
+	path = vendor/simai-m4
+	url = git@github.com:liecn/SimAI.git

@@ -166,3 +166,47 @@ def ns3(
         output=output,
         verbose=verbose,
     )
+
+
+@app.command()
+def m4(
+    workload: Annotated[
+        Path,
+        typer.Option("--workload", "-w", help="Path to workload file."),
+    ],
+    topology: Annotated[
+        Path,
+        typer.Option("--topology", "-n", help="Path to topology directory."),
+    ],
+    threads: Annotated[
+        int,
+        typer.Option("--threads", "-t", help="Number of simulation threads."),
+    ] = 1,
+    output: Annotated[
+        Optional[Path],
+        typer.Option("--output", "-o", help="Output path for results (file or directory)."),
+    ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Show binary output."),
+    ] = False,
+):
+    """Run the M4 (flow-level, ML-based) network simulation."""
+    from simai.backends.m4 import run_m4
+
+    _read_metadata(topology)
+
+    topo_file = topology / "topology"
+    if not topo_file.is_file():
+        raise typer.BadParameter(
+            f"No 'topology' file found in directory: {topology}\n"
+            "Did you generate this topology with 'simai generate topology'?"
+        )
+
+    run_m4(
+        workload=workload,
+        topology_file=topo_file,
+        threads=threads,
+        output=output,
+        verbose=verbose,
+    )
