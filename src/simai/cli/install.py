@@ -46,8 +46,39 @@ def _clone_m4_src(git_url: str) -> Path:
     return _M4_CACHE_DIR
 
 
-def _build_m4(m4_src: Path, dest_dir: Path) -> None:
+_N_FLOWS_MAX = 500_000  # Upstream hardcodes 50 000; large workloads exceed that
+
+
+def _patch_n_flows_max(m4_src: Path, n_flows_max: int) -> None:
+    """Patch M4.cc to set n_flows_max before compilation."""
+    import re
+    m4_cc = (
+        m4_src
+        / "astra-sim-alibabacloud"
+        / "astra-sim"
+        / "network_frontend"
+        / "m4"
+        / "M4.cc"
+    )
+    original = m4_cc.read_text()
+    patched = re.sub(
+        r"(int32_t\s+M4::n_flows_max\s*=\s*)\d+(\s*;)",
+        rf"\g<1>{n_flows_max}\2",
+        original,
+    )
+    if patched == original:
+        typer.echo(
+            "Warning: could not find 'M4::n_flows_max' in M4.cc — skipping patch.",
+            err=True,
+        )
+        return
+    m4_cc.write_text(patched)
+    typer.echo(f"Patched M4::n_flows_max → {n_flows_max} in {m4_cc}")
+
+
+def _build_m4(m4_src: Path, dest_dir: Path, n_flows_max: int = _N_FLOWS_MAX) -> None:
     """Compile SimAI_m4 and place the binary in dest_dir."""
+    _patch_n_flows_max(m4_src, n_flows_max)
     # Locate LibTorch directory (parent of share/cmake/Torch) for cmake discovery.
     # The m4 CMakeLists.txt checks LIBTORCH_DIR env var first; setting it explicitly
     # avoids cmake finding the wrong Python interpreter on multi-Python HPC systems.
@@ -153,6 +184,14 @@ def m4(
         bool,
         typer.Option("--force", help="Reinstall even if SimAI_m4 binary already exists."),
     ] = False,
+    n_flows_max: Annotated[
+        int,
+        typer.Option(
+            "--n-flows-max",
+            help="Maximum concurrent flows (patches M4::n_flows_max at build time). "
+                 f"Default: {_N_FLOWS_MAX}.",
+        ),
+    ] = _N_FLOWS_MAX,
 ) -> None:
     """Build and install the SimAI_m4 binary from source.
 
@@ -171,4 +210,4 @@ def m4(
     if m4_src is None:
         m4_src = _clone_m4_src(git_url)
 
-    _build_m4(m4_src, bin_dir)
+    _build_m4(m4_src, bin_dir, n_flows_max=n_flows_max)

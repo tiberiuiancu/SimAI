@@ -29,6 +29,12 @@ simai install m4             # compiles SimAI_m4 binary (requires CUDA torch + c
 > subsequent runs reuse that cache. For editable installs the local `vendor/simai-m4/` tree is
 > used instead. Pass `--src /path/to/simai-m4` to override, or set `LIBTORCH_DIR` to point to a
 > custom LibTorch. The `[m4]` extra pins `torch<2.7` — versions ≥2.7 are not yet supported.
+>
+> Use `--n-flows-max N` (default: 500 000) to raise the maximum concurrent-flow capacity before
+> compilation. The upstream default of 50 000 is too low for large workloads and causes a crash:
+> ```bash
+> simai install m4 --force --n-flows-max 1000000
+> ```
 
 ## Usage
 

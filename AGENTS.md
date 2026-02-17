@@ -122,6 +122,9 @@ For editable installs, resource discovery falls back to the `vendor/simai/` subm
   `~/.cache/simai/simai-m4/`, (3) auto-clone from `_M4_GIT_URL` on first run.
   Accepts `--src` to override source path and `--git-url` to override the clone URL.
   `--force` reinstalls even if the binary already exists.
+  `--n-flows-max N` (default `_N_FLOWS_MAX = 500_000`) patches `M4::n_flows_max` in
+  `M4.cc` before compilation via `_patch_n_flows_max()`. The upstream default (50 000)
+  is too low for large workloads and causes an out-of-range tensor index crash.
   Places binary in `simai/_binaries/` next to the package so `find_binary()` picks it up.
   Requires CUDA torch `>=2.4,<2.7` (or `LIBTORCH_DIR` set) and cmake/make/gcc.
 
@@ -502,5 +505,5 @@ simai simulate ns3 -w workload_gpt175b.txt -n topology_h100_128gpu/ \
 
 ---
 
-**Last Updated**: 2026-02-17 (m4 install: auto-clone from GitHub, torch<2.7 constraint) | **Human reference**: [`README.md`](./README.md)
+**Last Updated**: 2026-02-17 (m4 install: --n-flows-max flag, _patch_n_flows_max(), default 500 000) | **Human reference**: [`README.md`](./README.md)
 
