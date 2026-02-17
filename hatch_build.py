@@ -59,23 +59,6 @@ class CustomBuildHook(BuildHookInterface):
                 conf_dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(conf_src, conf_dest)
 
-        # --- Bundle m4 model files ---
-        m4_models_src = (
-            Path(self.root)
-            / "vendor"
-            / "simai-m4"
-            / "astra-sim-alibabacloud"
-            / "astra-sim"
-            / "network_frontend"
-            / "m4"
-            / "models"
-        )
-        if m4_models_src.is_dir():
-            m4_models_dest = src_root / "_vendor" / "m4_models"
-            if m4_models_dest.exists():
-                shutil.rmtree(m4_models_dest)
-            shutil.copytree(m4_models_src, m4_models_dest)
-
         # --- Include pre-built binaries ---
         bin_dir = Path(self.root) / "build" / "bin"
         bin_dest = src_root / "_binaries"
@@ -88,8 +71,10 @@ class CustomBuildHook(BuildHookInterface):
                 if binary.is_file():
                     dest = bin_dest / binary.name
                     shutil.copy2(binary, dest)
-                    # Ensure executable
                     dest.chmod(dest.stat().st_mode | 0o111)
+                    # Strip debug symbols to reduce wheel size
+                    import subprocess as _sp
+                    _sp.run(["strip", str(dest)], capture_output=True)
 
         # --- Force-include dynamically created directories ---
         # Hatchling uses git to decide what goes in the wheel, so files

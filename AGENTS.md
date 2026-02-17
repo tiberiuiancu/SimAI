@@ -116,6 +116,15 @@ For editable installs, resource discovery falls back to the `vendor/simai/` subm
 **`profile.py`**:
 - `gpu()`: Profile GPU kernels on real hardware. Requires PyTorch + CUDA.
 
+**`install.py`**:
+- `m4()`: Compile and install the `SimAI_m4` binary from source.
+  Source discovery order: (1) editable-install `vendor/simai-m4/`, (2) cached clone at
+  `~/.cache/simai/simai-m4/`, (3) auto-clone from `_M4_GIT_URL` on first run.
+  Accepts `--src` to override source path and `--git-url` to override the clone URL.
+  `--force` reinstalls even if the binary already exists.
+  Places binary in `simai/_binaries/` next to the package so `find_binary()` picks it up.
+  Requires CUDA torch `>=2.4,<2.7` (or `LIBTORCH_DIR` set) and cmake/make/gcc.
+
 **`simulate.py`**:
 - `analytical()`: Fast bandwidth-based simulation. Accepts workload + topology dir.
   Overlap parameters: `--dp-overlap`, `--tp-overlap`, `--ep-overlap`, `--pp-overlap`.
@@ -228,7 +237,7 @@ Runs automatically during `hatch build` / `uv build`:
 
 ### Local Wheel Build (`scripts/build_wheel.sh`)
 
-Mirrors the CI pipeline. Builds missing binaries then calls `uv build --wheel`.
+Mirrors the CI pipeline for analytical+ns3 binaries. Builds missing binaries then calls `uv build --wheel`.
 
 ```bash
 # Full build: binaries (if missing) + wheel
@@ -244,18 +253,14 @@ Mirrors the CI pipeline. Builds missing binaries then calls `uv build --wheel`.
 rm -rf build/bin && ./scripts/build_wheel.sh --docker
 ```
 
-Binary detection: if `build/bin/SimAI_analytical`, `build/bin/SimAI_simulator`, **and**
-`build/bin/SimAI_m4` all exist the binary build is skipped automatically (no flag needed).
-Missing binaries are built individually — e.g. only `SimAI_m4` missing only triggers `build_m4()`.
+Binary detection: if `build/bin/SimAI_analytical` and `build/bin/SimAI_simulator` both exist,
+the binary build is skipped automatically (no flag needed).
 
-Build tool priority for analytical+ns3: Docker (`quay.io/pypa/manylinux2014_x86_64`) if
-available, then native `cmake`/`make`.
+Build tool priority: Docker (`quay.io/pypa/manylinux2014_x86_64`) if available, then native
+`cmake`/`make`.
 
-**m4 binary is always built natively** (not inside Docker). It downloads CPU-only LibTorch
-2.2.2 to `build/libtorch/` (cached after first download) and sets `LIBTORCH_DIR` before
-calling `vendor/simai-m4/scripts/build.sh -c m4`. The vendor build script hardcodes
-`CC=gcc-9`/`CXX=g++-9`; if those aren't installed, the script creates temporary symlinks
-pointing to the available `gcc`/`g++` so cmake succeeds.
+**Note**: `SimAI_m4` is NOT built by this script. It is compiled automatically by
+`hatch_build.py` at install time when `vendor/simai-m4/` is present (see below).
 
 ### Binary Compilation (upstream scripts)
 
@@ -453,14 +458,13 @@ running `uv build --wheel`. The source file is not committed — it's a transien
 2. **build-analytical**: manylinux2014 Docker, applies path patches, CMake, caches by submodule commit
 3. **build-ns3**: manylinux2014 Docker, installs libxml2/sqlite/gsl, builds NS-3 debug + MTP,
    strips symbols, bundles `libns3*.so` shared libraries, caches by submodule commit
-4. **build-m4**: Ubuntu runner (not manylinux), installs CPU-only LibTorch 2.2.2 to `/opt/libtorch`,
-   sets `LIBTORCH_DIR`, calls `vendor/simai-m4/scripts/build.sh -c m4`. Runs on version
-   change, `force`, or `is_dev`. **Must not use CUDA LibTorch** (binary would link CUDA .so
-   files, failing on machines without GPU drivers).
-5. **build-wheel**: Downloads binaries from artifacts, patches version (dev only), `uv build --wheel`, enforces <100MB PyPI limit
+4. **build-wheel**: Downloads binaries from artifacts, patches version (dev only), `uv build --wheel`, enforces <100MB PyPI limit
 5. **release**: Creates git tag `v<version>`, GitHub release with wheel attached *(main only)*
 6. **publish-pypi**: OIDC authentication, publishes to PyPI *(main only)*
 7. **publish-testpypi**: OIDC authentication, publishes to TestPyPI *(dev only)*
+
+**m4 binary is NOT built in CI and NOT built at wheel/install time.** It requires CUDA and
+is compiled on demand via `simai install m4` (see CLI below).
 
 Binaries are renamed during wheel build: `ns3.36.1-AstraSimNetwork-debug` → `SimAI_simulator`
 
@@ -498,5 +502,5 @@ simai simulate ns3 -w workload_gpt175b.txt -n topology_h100_128gpu/ \
 
 ---
 
-**Last Updated**: 2026-02-16 | **Human reference**: [`README.md`](./README.md)
+**Last Updated**: 2026-02-17 (m4 install: auto-clone from GitHub, torch<2.7 constraint) | **Human reference**: [`README.md`](./README.md)
 

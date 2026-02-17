@@ -10,7 +10,6 @@
 #   SimAI_analytical
 #   SimAI_simulator  (ns3 binary)
 #   libns3*.so       (ns3 shared libs)
-#   SimAI_m4
 
 set -euo pipefail
 
@@ -20,14 +19,8 @@ cd "$REPO_ROOT"
 BIN_DIR="build/bin"
 ANALYTICAL_BIN="$BIN_DIR/SimAI_analytical"
 SIMULATOR_BIN="$BIN_DIR/SimAI_simulator"
-M4_BIN="$BIN_DIR/SimAI_m4"
 VENDOR="vendor/simai/astra-sim-alibabacloud"
 NS3_SRC="vendor/simai/ns-3-alibabacloud"
-M4_VENDOR="vendor/simai-m4"
-
-# CPU-only LibTorch (old ABI, matches AstraSim's _GLIBCXX_USE_CXX11_ABI=0)
-LIBTORCH_CACHE="build/libtorch"
-LIBTORCH_URL="https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.2.2%2Bcpu.zip"
 
 SKIP_BIN=false
 FORCE_DOCKER=false
@@ -187,67 +180,15 @@ build_binaries() {
   fi
 }
 
-# ── m4 binary (always built natively, uses CPU-only LibTorch) ─────────────────
-
-build_m4() {
-  log "Building SimAI_m4..."
-
-  has cmake || die "cmake not found."
-  has make  || die "make not found."
-  has wget  || die "wget not found."
-  has unzip || die "unzip not found."
-
-  # Download CPU-only LibTorch if not cached
-  if [[ ! -d "$LIBTORCH_CACHE/libtorch" ]]; then
-    log "Downloading CPU-only LibTorch (cached at $LIBTORCH_CACHE/)..."
-    mkdir -p "$LIBTORCH_CACHE"
-    wget -q "$LIBTORCH_URL" -O "$LIBTORCH_CACHE/libtorch.zip"
-    unzip -q "$LIBTORCH_CACHE/libtorch.zip" -d "$LIBTORCH_CACHE"
-    rm "$LIBTORCH_CACHE/libtorch.zip"
-  else
-    log "Using cached LibTorch at $LIBTORCH_CACHE/libtorch."
-  fi
-
-  # The vendor build script hardcodes CC=gcc-9/CXX=g++-9.
-  # If those aren't installed, shim them to the available gcc.
-  local extra_path=""
-  if ! has gcc-9; then
-    local shim_dir
-    shim_dir="$(mktemp -d)"
-    ln -s "$(which gcc)" "$shim_dir/gcc-9"
-    ln -s "$(which g++)" "$shim_dir/g++-9"
-    extra_path="$shim_dir:"
-  fi
-
-  PATH="${extra_path}$PATH" \
-  LIBTORCH_DIR="$(pwd)/$LIBTORCH_CACHE/libtorch" \
-    bash "$M4_VENDOR/scripts/build.sh" -c m4
-
-  # Copy the real binary (not the symlink that build.sh creates)
-  m4_built="$M4_VENDOR/astra-sim-alibabacloud/build/simai_m4/build/simai_m4/SimAI_m4"
-  [[ -f "$m4_built" ]] || die "SimAI_m4 build failed: binary not found at $m4_built"
-
-  mkdir -p "$BIN_DIR"
-  cp "$m4_built" "$BIN_DIR/SimAI_m4"
-  chmod +x "$BIN_DIR/SimAI_m4"
-  log "SimAI_m4 built and placed in $BIN_DIR/"
-}
-
 # ── main ──────────────────────────────────────────────────────────────────────
 
 if ! $SKIP_BIN; then
-  if [[ -f "$ANALYTICAL_BIN" && -f "$SIMULATOR_BIN" && -f "$M4_BIN" ]]; then
+  if [[ -f "$ANALYTICAL_BIN" && -f "$SIMULATOR_BIN" ]]; then
     log "Binaries already present in $BIN_DIR/, skipping build."
   else
     [[ -f "$ANALYTICAL_BIN" ]] || log "Missing: $ANALYTICAL_BIN"
     [[ -f "$SIMULATOR_BIN"  ]] || log "Missing: $SIMULATOR_BIN"
-    [[ -f "$M4_BIN"         ]] || log "Missing: $M4_BIN"
-    if [[ ! -f "$ANALYTICAL_BIN" || ! -f "$SIMULATOR_BIN" ]]; then
-      build_binaries
-    fi
-    if [[ ! -f "$M4_BIN" ]]; then
-      build_m4
-    fi
+    build_binaries
   fi
 fi
 

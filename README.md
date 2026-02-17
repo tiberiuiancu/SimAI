@@ -16,6 +16,20 @@ For GPU compute profiling (optional, requires CUDA):
 pip install "simai[profiling]"
 ```
 
+For the M4 (flow-level, ML-based) simulation backend:
+
+```bash
+pip install "simai[m4]"      # installs torch dependency
+simai install m4             # compiles SimAI_m4 binary (requires CUDA torch + cmake/make/gcc)
+```
+
+> **Note**: The M4 binary (`SimAI_m4`) is **not** included in the PyPI wheel. Run
+> `simai install m4` to compile it from source (requires CUDA-enabled PyTorch and cmake/make/gcc).
+> On first run the source is cloned automatically from GitHub into `~/.cache/simai/simai-m4/`;
+> subsequent runs reuse that cache. For editable installs the local `vendor/simai-m4/` tree is
+> used instead. Pass `--src /path/to/simai-m4` to override, or set `LIBTORCH_DIR` to point to a
+> custom LibTorch. The `[m4]` extra pins `torch<2.7` — versions ≥2.7 are not yet supported.
+
 ## Usage
 
 ### 1. Generate a workload
@@ -96,6 +110,15 @@ simai simulate analytical \
 
 ```bash
 simai simulate ns3 \
+    -w workload.txt \
+    -n my_topo/ \
+    -o results/
+```
+
+**M4** (flow-level, ML-based gray failure, requires local build — see installation note above):
+
+```bash
+simai simulate m4 \
     -w workload.txt \
     -n my_topo/ \
     -o results/

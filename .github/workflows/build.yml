@@ -187,54 +187,9 @@ jobs:
           name: SimAI_simulator
           path: build/ns3-deps/
 
-  build-m4:
-    needs: check-version
-    if: needs.check-version.outputs.changed == 'true' || inputs.force == true || needs.check-version.outputs.is_dev == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Get submodule commit hash
-        id: submodule-hash
-        run: echo "hash=$(git -C vendor/simai-m4 rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache m4 binary
-        id: cache-m4
-        uses: actions/cache@v4
-        with:
-          path: vendor/simai-m4/astra-sim-alibabacloud/build/simai_m4/build/simai_m4/SimAI_m4
-          key: m4-ubuntu22-${{ steps.submodule-hash.outputs.hash }}
-
-      - name: Install build dependencies
-        if: steps.cache-m4.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-9 g++-9 cmake unzip
-          # Standalone LibTorch, old (pre-CXX11) ABI to match AstraSim which is
-          # compiled with _GLIBCXX_USE_CXX11_ABI=0 (see astra-sim-alibabacloud/CMakeLists.txt).
-          # Using the CXX11-ABI build causes ABI mismatch on std::string symbols.
-          wget -q "https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.2.2%2Bcpu.zip" \
-               -O libtorch.zip
-          unzip -q libtorch.zip -d /opt
-          echo "LIBTORCH_DIR=/opt/libtorch" >> "$GITHUB_ENV"
-
-      - name: Build SimAI_m4
-        if: steps.cache-m4.outputs.cache-hit != 'true'
-        run: |
-          cd vendor/simai-m4/scripts
-          bash build.sh -c m4
-
-      - name: Upload m4 binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: SimAI_m4
-          path: vendor/simai-m4/astra-sim-alibabacloud/build/simai_m4/build/simai_m4/SimAI_m4
-
   build-wheel:
     runs-on: ubuntu-latest
-    needs: [check-version, build-analytical, build-ns3, build-m4]
+    needs: [check-version, build-analytical, build-ns3]
     if: (needs.check-version.outputs.changed == 'true' || inputs.force == true) || needs.check-version.outputs.is_dev == 'true'
     steps:
       - uses: actions/checkout@v4
@@ -251,12 +206,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: SimAI_simulator
-          path: build/bin
-
-      - name: Download m4 binary
-        uses: actions/download-artifact@v4
-        with:
-          name: SimAI_m4
           path: build/bin
 
       - name: Prepare binaries

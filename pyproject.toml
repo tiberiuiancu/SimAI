@@ -3,7 +3,7 @@ name = "simai"
 version = "0.4.0"
 description = "Python wrapper for SimAI datacenter network simulator"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "typer>=0.15",
     "numpy>=1.26",
@@ -12,7 +12,7 @@ dependencies = [
 
 [project.optional-dependencies]
 profiling = ["torch>=2.0"]
-m4 = ["torch>=2.0"]
+m4 = ["torch>=2.4,<2.7"]
 
 [project.scripts]
 simai = "simai.cli.app:main"
