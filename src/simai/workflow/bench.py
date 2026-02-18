@@ -111,7 +111,7 @@ def run_training_benchmark(
     if swiglu:
         cmd.append("--swiglu")
     if distributed_optimizer:
-        cmd.append("--use_distributed_optimizer")
+        cmd.append("--use-distributed-optimizer")
     if aiob_enable:
         cmd.append("--aiob_enable")
     if comp_filepath is not None:
