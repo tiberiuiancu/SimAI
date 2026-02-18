@@ -43,11 +43,36 @@ def apex(
         Path | None,
         typer.Option("--src", help="Path to apex source directory.", exists=True, file_okay=False),
     ] = None,
+    skip_cuda_version_check: Annotated[
+        bool,
+        typer.Option(
+            "--skip-cuda-version-check",
+            help="Patch apex setup.py to skip CUDA version check (use if you get a CUDA version mismatch error)",
+        ),
+    ] = False,
 ) -> None:
-    """Install NVIDIA Apex (CUDA extensions for PyTorch)."""
+    """Install NVIDIA Apex (CUDA extensions for PyTorch).
+
+    If you see a RuntimeError about CUDA version mismatch, you can use --skip-cuda-version-check to patch setup.py and skip the check (at your own risk).
+    """
     apex_src = src or (_APEX_CACHE_DIR if _APEX_CACHE_DIR.is_dir() else None)
     if not apex_src or force:
         apex_src = _clone_repo(git_url, _APEX_CACHE_DIR)
+
+    setup_py = apex_src / "setup.py"
+    if skip_cuda_version_check and setup_py.is_file():
+        text = setup_py.read_text()
+        replaced = text.replace(
+            "check_cuda_torch_binary_vs_bare_metal(CUDA_HOME)",
+            "#check_cuda_torch_binary_vs_bare_metal(CUDA_HOME)"
+        )
+        if text == replaced:
+            typer.echo("Warning: Could not find CUDA version check call in setup.py to patch.")
+        else:
+            setup_py.write_text(replaced)
+            typer.echo("Patched apex setup.py to comment out CUDA version check call.")
+            typer.echo("  (You are bypassing a safety check. See https://github.com/NVIDIA/apex/pull/323#discussion_r287021798)")
+
     install_cmd = [
         "bash", "-c",
         f'NVCC_APPEND_FLAGS="--threads $(nproc)" '
