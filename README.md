@@ -23,6 +23,19 @@ pip install "simai[m4]"      # installs torch dependency
 simai install m4             # compiles SimAI_m4 binary (requires CUDA torch + cmake/make/gcc)
 ```
 
+For NVIDIA Apex (PyTorch CUDA extensions) and DeepGEMM (DeepSeek CUDA kernels):
+
+```bash
+simai install apex           # Installs NVIDIA/apex (for AICB profiling, optional)
+simai install deepgemm       # Installs DeepSeekAI/DeepGEMM (for DeepSeek models, optional)
+```
+
+> **Note**: If you see a RuntimeError about CUDA version mismatch when installing Apex, you can use:
+> ```bash
+> simai install apex --skip-cuda-version-check
+> ```
+> This will patch `setup.py` to skip the CUDA version check (at your own risk). See [discussion](https://github.com/NVIDIA/apex/pull/323#discussion_r287021798).
+
 > **Note**: The M4 binary (`SimAI_m4`) is **not** included in the PyPI wheel. Run
 > `simai install m4` to compile it from source (requires CUDA-enabled PyTorch and cmake/make/gcc).
 > On first run the source is cloned automatically from GitHub into `~/.cache/simai/simai-m4/`;
@@ -129,6 +142,53 @@ simai simulate m4 \
     -n my_topo/ \
     -o results/
 ```
+
+### 1b. Run a distributed training benchmark (AICB)
+
+For running actual collective operations across a real GPU cluster using AICB:
+
+```bash
+# Single-node smoke test (no SLURM needed)
+simai bench training \
+    --nproc-per-node 4 \
+    --world-size 4 \
+    --framework Megatron \
+    --num-layers 24 \
+    --hidden-size 1024 \
+    --num-heads 16 \
+    --global-batch-size 8 \
+    --micro-batch-size 1 \
+    --epochs 1 \
+    --output results/bench/
+```
+
+With a GPU compute profile for realistic AIOB compute-communication overlap:
+
+```bash
+simai bench training \
+    --nproc-per-node 4 --world-size 4 \
+    --num-layers 24 --hidden-size 1024 --num-heads 16 \
+    --global-batch-size 8 --micro-batch-size 1 \
+    --comp-profile h100_profile.txt \
+    --output results/bench/
+```
+
+**Multi-node SLURM** — SLURM env vars (`SLURM_NNODES`, `SLURM_NODEID`, `SLURM_GPUS_PER_NODE`,
+`MASTER_ADDR`, `MASTER_PORT`) are auto-detected, so each `srun` task needs no extra flags:
+
+```bash
+# Use the provided template (edit partition / model config as needed)
+sbatch tests/run_bench.slurm
+```
+
+Requirements:
+- PyTorch with CUDA: `pip install "simai[profiling]"`
+- CUDA-capable GPUs
+- AICB source (vendored in wheel, or set `SIMAI_PATH`)
+
+> **Note**: `simai bench training` runs actual NCCL collective operations on real GPUs.
+> This is different from `simai profile gpu` (single-GPU kernel timing, no communication)
+> and `simai simulate analytical/ns3` (software simulation, no GPU needed).
 
 ### Installing a dev version
 

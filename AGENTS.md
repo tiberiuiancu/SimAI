@@ -27,7 +27,7 @@ additional exploration. Keep it up to date when making structural changes.
 SimAI is a Python wrapper and CLI for the SimAI datacenter network simulator, optimized for
 AI training workload analysis. It provides:
 
-- **CLI**: `simai generate workload/topology`, `simai profile gpu`, `simai simulate analytical/ns3`
+- **CLI**: `simai bench training`, `simai generate workload/topology`, `simai profile gpu`, `simai simulate analytical/ns3`
 - **Workload generation**: From ML framework configs (Megatron, DeepSpeed, DeepSeek)
 - **Topology generation**: For Spectrum-X, DCN+, AlibabaHPN datacenter architectures
 - **Three simulation backends**: Analytical (fast, bandwidth-based), NS-3 (detailed, packet-level), and M4 (flow-level, ML-based gray failure)
@@ -43,10 +43,10 @@ structures, config patching, binary discovery) and bundles pre-built binaries in
 ```
 simai/
 ├── src/simai/              # Python package source
-│   ├── cli/                # Typer CLI commands (app.py, generate.py, profile.py, simulate.py)
+│   ├── cli/                # Typer CLI commands (app.py, bench.py, generate.py, profile.py, simulate.py)
 │   ├── backends/           # Simulation backends (binary.py, analytical.py, ns3.py)
 │   ├── topology/           # Topology generation (generator.py)
-│   └── workflow/           # Workload generation and GPU profiling (generator.py, profiler.py)
+│   └── workflow/           # Workload generation, GPU profiling, bench (generator.py, profiler.py, bench.py)
 ├── vendor/
 │   ├── simai/              # Git submodule → https://github.com/aliyun/SimAI.git
 │   │   ├── aicb/           # AICB workload generator
@@ -65,7 +65,8 @@ simai/
 │   └── restore_paths.sh    # Restore original vendor files from backups
 ├── tests/
 │   ├── test_profile_integration.sh  # GPU profiling integration tests
-│   └── run_profile_tests.slurm     # SLURM job for GPU cluster testing
+│   ├── run_profile_tests.slurm     # SLURM job for single-node GPU profiling
+│   └── run_bench.slurm             # SLURM job for multi-node distributed benchmark
 ├── .github/workflows/build.yml  # CI/CD pipeline
 ├── hatch_build.py          # Custom Hatch build hook (vendors code + binaries at build time)
 ├── pyproject.toml          # Project metadata, dependencies, entry points
@@ -104,7 +105,7 @@ For editable installs, resource discovery falls back to the `vendor/simai/` subm
 
 ### CLI Layer (`src/simai/cli/`)
 
-**`app.py`**: Main Typer app with three top-level commands (`generate`/`gen`, `profile`, `simulate`).
+**`app.py`**: Main Typer app with top-level commands: `bench`, `generate`/`gen`, `install`, `profile`, `simulate`.
 
 **`generate.py`**:
 - `workload()`: Generate training workload `.txt` files. Parameters: framework, num_gpus,
@@ -112,6 +113,12 @@ For editable installs, resource discovery falls back to the `vendor/simai/` subm
   batch sizes, MoE config, compute profile.
 - `topology()` / `topo()` (hidden alias): Generate network topology directories.
   Parameters: type (Spectrum-X, DCN+, AlibabaHPN), GPUs, bandwidth, latency, dual-ToR, dual-plane.
+
+**`bench.py`**:
+- `training()`: Run a distributed AICB training benchmark via `torchrun`. Launches actual NCCL
+  collective operations across real GPUs. SLURM env vars (`SLURM_NNODES`, `SLURM_NODEID`,
+  `SLURM_GPUS_PER_NODE`, `MASTER_ADDR`, `MASTER_PORT`) are auto-detected as defaults.
+  `--comp-profile` implies `--aiob`. Deferred import of `workflow.bench`.
 
 **`profile.py`**:
 - `gpu()`: Profile GPU kernels on real hardware. Requires PyTorch + CUDA.
@@ -127,6 +134,8 @@ For editable installs, resource discovery falls back to the `vendor/simai/` subm
   is too low for large workloads and causes an out-of-range tensor index crash.
   Places binary in `simai/_binaries/` next to the package so `find_binary()` picks it up.
   Requires CUDA torch `>=2.4,<2.7` (or `LIBTORCH_DIR` set) and cmake/make/gcc.
+- `apex()`: Installs NVIDIA/apex (PyTorch CUDA extensions) from source. Clones to `~/.cache/simai/apex` by default. Accepts `--src` and `--git-url`. Use `--skip-cuda-version-check` to patch `setup.py` and skip the CUDA version check (see [discussion](https://github.com/NVIDIA/apex/pull/323#discussion_r287021798)).
+- `deepgemm()`: Installs DeepSeekAI/DeepGEMM (CUDA kernels for DeepSeek models) from source. Clones to `~/.cache/simai/DeepGEMM` by default. Accepts `--src` and `--git-url`.
 
 **`simulate.py`**:
 - `analytical()`: Fast bandwidth-based simulation. Accepts workload + topology dir.
@@ -141,6 +150,12 @@ For editable installs, resource discovery falls back to the `vendor/simai/` subm
 - Uses `@contextmanager` `_aicb_on_path()` for temporary `sys.path` injection
 - Injects `argparse.Namespace` into AICB module globals (not modifying AICB source)
 - Outputs `.txt` workload file
+
+**`bench.py`** - `run_training_benchmark()`:
+- `_find_torchrun()`: Locates `torchrun` — checks venv bin dir first, then `shutil.which`
+- `run_training_benchmark()`: Builds and launches `torchrun aicb.py` subprocess. Reuses
+  `_find_aicb_root()` from `generator.py`. Boolean flags (`--moe_enable`, `--aiob_enable`, etc.)
+  appended only when `True`. Runs in `output_dir`; returns subprocess returncode.
 
 **`profiler.py`** - `profile_gpu_kernels()`:
 - `_patch_optional_cuda_modules()` (lines 24-73): Creates fake modules for apex,
@@ -301,14 +316,17 @@ PyPI enforces <100MB limit; CI checks this.
 Tests require GPU access via SLURM (HPC cluster):
 
 ```bash
-# Integration test for GPU profiling
+# Integration test for GPU profiling (single-node)
 ./tests/test_profile_integration.sh
 
-# Submit SLURM job
+# Submit SLURM job for GPU profiling
 sbatch tests/run_profile_tests.slurm
+
+# Submit SLURM job for multi-node distributed benchmark
+sbatch tests/run_bench.slurm
 ```
 
-There are no unit tests currently - only end-to-end profiling integration tests.
+There are no unit tests currently - only end-to-end integration tests.
 
 ---
 
@@ -505,5 +523,5 @@ simai simulate ns3 -w workload_gpt175b.txt -n topology_h100_128gpu/ \
 
 ---
 
-**Last Updated**: 2026-02-17 (m4 install: --n-flows-max flag, _patch_n_flows_max(), default 500 000) | **Human reference**: [`README.md`](./README.md)
+**Last Updated**: 2026-02-18 (add `simai bench training`: cli/bench.py, workflow/bench.py, tests/run_bench.slurm) | **Human reference**: [`README.md`](./README.md)
 
