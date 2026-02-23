@@ -184,10 +184,10 @@ def analytical(
         nic_bandwidth=topo.get("nic_bandwidth_gbps"),
         nics_per_server=topo.get("nics_per_switch"),
         gpu_type=topo.get("gpu_type"),
-        dp_overlap=dp_overlap or cfg.simulation.dp_overlap,
-        tp_overlap=tp_overlap or cfg.simulation.tp_overlap,
-        ep_overlap=ep_overlap or cfg.simulation.ep_overlap,
-        pp_overlap=pp_overlap or cfg.simulation.pp_overlap,
+        dp_overlap=dp_overlap if dp_overlap is not None else cfg.analytical.dp_overlap,
+        tp_overlap=tp_overlap if tp_overlap is not None else cfg.analytical.tp_overlap,
+        ep_overlap=ep_overlap if ep_overlap is not None else cfg.analytical.ep_overlap,
+        pp_overlap=pp_overlap if pp_overlap is not None else cfg.analytical.pp_overlap,
         result_prefix=result_prefix,
         output=effective_output,
         verbose=cfg.run.verbose,
@@ -238,9 +238,9 @@ def ns3(
 ):
     """Run the NS-3 (detailed, packet-level) network simulation."""
     from simai.backends.ns3 import run_ns3
-    from simai.config import SimaiConfig, load_config, merge_cli, to_flat_dict, ns3_config_to_dict
+    from simai.config import SimaiConfig, load_config, merge_cli, to_flat_dict, ns3_config_to_simai_conf_dict
 
-    # Determine if config_file is TOML or SimAI.conf
+    # Determine if config_file is TOML or legacy SimAI.conf
     toml_cfg: SimaiConfig | None = None
     simai_conf_path: Path | None = None
     ns3_conf_dict: dict | None = None
@@ -254,13 +254,15 @@ def ns3(
             simai_conf_path = config_file
 
     cfg: SimaiConfig = toml_cfg or SimaiConfig()
+    # Apply CLI overrides; threads go to ns3 section
+    if threads != 8:
+        cfg.ns3.threads = threads
     merge_cli(
         cfg,
         output=str(output) if output else None,
         verbose=verbose or None,
         workload=str(workload) if workload else None,
         topology=str(topology) if topology else None,
-        threads=threads,
         send_latency=send_latency,
         nvls=nvls if nvls else None,
         pxn=pxn if pxn else None,
@@ -270,7 +272,7 @@ def ns3(
 
     # If TOML config was loaded, use [ns3] section for SimAI.conf
     if toml_cfg is not None and simai_conf_path is None:
-        ns3_conf_dict = ns3_config_to_dict(cfg.ns3)
+        ns3_conf_dict = ns3_config_to_simai_conf_dict(cfg.ns3)
 
     wl_path = Path(cfg.workload.file) if cfg.workload.file else workload
     topo_path = Path(cfg.topology.file) if cfg.topology.file else topology
@@ -296,10 +298,10 @@ def ns3(
         topology=topo_file,
         config=simai_conf_path,
         ns3_conf=ns3_conf_dict,
-        threads=cfg.simulation.threads,
-        send_latency=cfg.simulation.send_latency,
-        nvls=cfg.simulation.nvls,
-        pxn=cfg.simulation.pxn,
+        threads=cfg.ns3.threads,
+        send_latency=cfg.ns3.send_latency,
+        nvls=cfg.ns3.nvls,
+        pxn=cfg.ns3.pxn,
         output=effective_output,
         verbose=cfg.run.verbose,
         preserve_raw=True,
@@ -343,13 +345,14 @@ def m4(
     from simai.config import SimaiConfig, load_config, merge_cli, to_flat_dict
 
     cfg: SimaiConfig = load_config(config_file) if config_file else SimaiConfig()
+    if threads != 1:
+        cfg.m4.threads = threads
     merge_cli(
         cfg,
         output=str(output) if output else None,
         verbose=verbose or None,
         workload=str(workload) if workload else None,
         topology=str(topology) if topology else None,
-        threads=threads,
     )
     if verbose:
         cfg.run.verbose = True
@@ -371,7 +374,7 @@ def m4(
         workload=wl_path,
         topology_file=topo_path,
         topology_dict=topo,
-        threads=cfg.simulation.threads,
+        threads=cfg.m4.threads,
         output=effective_output,
         verbose=cfg.run.verbose,
         preserve_raw=True,

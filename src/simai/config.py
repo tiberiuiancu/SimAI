@@ -61,23 +61,34 @@ class ComputeProfileConfig:
 
 
 @dataclass
-class SimulationConfig:
-    # Shared
-    threads: int = 8
-    # Analytical overlap ratios
-    dp_overlap: Optional[float] = None
-    tp_overlap: Optional[float] = None
-    ep_overlap: Optional[float] = None
-    pp_overlap: Optional[float] = None
-    # NS-3 specific
-    send_latency: Optional[int] = None
-    nvls: bool = False
-    pxn: bool = False
+class AnalyticalConfig:
+    """Parameters specific to the analytical backend."""
+    dp_overlap: Optional[float] = None   # DP comm overlap ratio (0.0–1.0)
+    tp_overlap: Optional[float] = None   # TP comm overlap ratio
+    ep_overlap: Optional[float] = None   # EP comm overlap ratio
+    pp_overlap: Optional[float] = None   # PP comm overlap ratio
+
+
+@dataclass
+class M4Config:
+    """Parameters specific to the M4 backend."""
+    threads: int = 1
 
 
 @dataclass
 class NS3Config:
-    """NS-3 SimAI.conf parameters — all keys map 1:1 to SimAI.conf lines."""
+    """Parameters for the NS-3 backend.
+
+    Runtime flags (threads, send_latency, nvls, pxn) and all SimAI.conf keys.
+    All SimAI.conf keys map 1:1 to lines in the generated SimAI.conf file.
+    """
+    # Runtime flags
+    threads: int = 8
+    send_latency: Optional[int] = None   # microseconds (AS_SEND_LAT env var)
+    nvls: bool = False                   # NVLink Switch (AS_NVLS_ENABLE)
+    pxn: bool = False                    # PCIe cross-node (AS_PXN_ENABLE)
+
+    # SimAI.conf parameters
     ENABLE_QCN: int = 1
     USE_DYNAMIC_PFC_THRESHOLD: int = 1
     PACKET_PAYLOAD_SIZE: int = 9000
@@ -123,14 +134,30 @@ class NS3Config:
     BW_MON_INTERVAL: int = 10000
 
 
+# SimAI.conf keys — the subset of NS3Config fields that go into the conf file
+_NS3_CONF_KEYS = {
+    "ENABLE_QCN", "USE_DYNAMIC_PFC_THRESHOLD", "PACKET_PAYLOAD_SIZE",
+    "SIMULATOR_STOP_TIME", "CC_MODE", "ALPHA_RESUME_INTERVAL",
+    "RATE_DECREASE_INTERVAL", "CLAMP_TARGET_RATE", "RP_TIMER", "EWMA_GAIN",
+    "FAST_RECOVERY_TIMES", "RATE_AI", "RATE_HAI", "MIN_RATE", "DCTCP_RATE_AI",
+    "ERROR_RATE_PER_LINK", "L2_CHUNK_SIZE", "L2_ACK_INTERVAL", "L2_BACK_TO_ZERO",
+    "HAS_WIN", "GLOBAL_T", "VAR_WIN", "FAST_REACT", "U_TARGET", "MI_THRESH",
+    "INT_MULTI", "MULTI_RATE", "SAMPLE_FEEDBACK", "PINT_LOG_BASE", "PINT_PROB",
+    "RATE_BOUND", "ACK_HIGH_PRIO", "LINK_DOWN", "ENABLE_TRACE",
+    "KMAX_MAP", "KMIN_MAP", "PMAX_MAP", "BUFFER_SIZE",
+    "MON_START", "MON_END", "QP_MON_INTERVAL", "QLEN_MON_INTERVAL", "BW_MON_INTERVAL",
+}
+
+
 @dataclass
 class SimaiConfig:
     run: RunConfig = field(default_factory=RunConfig)
     workload: WorkloadConfig = field(default_factory=WorkloadConfig)
     topology: TopologyConfig = field(default_factory=TopologyConfig)
     compute_profile: ComputeProfileConfig = field(default_factory=ComputeProfileConfig)
-    simulation: SimulationConfig = field(default_factory=SimulationConfig)
+    analytical: AnalyticalConfig = field(default_factory=AnalyticalConfig)
     ns3: NS3Config = field(default_factory=NS3Config)
+    m4: M4Config = field(default_factory=M4Config)
 
 
 # ---------------------------------------------------------------------------
@@ -174,37 +201,39 @@ def load_config(path: Path) -> SimaiConfig:
         _apply_section(cfg.topology, raw["topology"])
     if "compute_profile" in raw:
         _apply_section(cfg.compute_profile, raw["compute_profile"])
-    if "simulation" in raw:
-        _apply_section(cfg.simulation, raw["simulation"])
+    if "analytical" in raw:
+        _apply_section(cfg.analytical, raw["analytical"])
     if "ns3" in raw:
         _apply_section(cfg.ns3, raw["ns3"])
+    if "m4" in raw:
+        _apply_section(cfg.m4, raw["m4"])
     return cfg
 
 
 def merge_cli(config: SimaiConfig, **overrides: Any) -> SimaiConfig:
     """Apply non-None CLI override values onto config sections.
 
-    Each override key is expected to be in the form `section__key` or just `key`.
-    Supported shortcuts:
-      output, verbose → run
-      workload → workload.file
-      topology → topology.file
-      threads, dp_overlap, tp_overlap, ep_overlap, pp_overlap,
-      send_latency, nvls, pxn → simulation
+    Supported keys and their target section.field:
+      output, verbose            → run
+      workload                   → workload.file
+      topology                   → topology.file
+      dp_overlap, tp_overlap,
+      ep_overlap, pp_overlap     → analytical
+      threads                    → ns3.threads  (or m4.threads — caller decides)
+      send_latency, nvls, pxn    → ns3
     """
     mapping = {
         "output": ("run", "output"),
         "verbose": ("run", "verbose"),
         "workload": ("workload", "file"),
         "topology": ("topology", "file"),
-        "threads": ("simulation", "threads"),
-        "dp_overlap": ("simulation", "dp_overlap"),
-        "tp_overlap": ("simulation", "tp_overlap"),
-        "ep_overlap": ("simulation", "ep_overlap"),
-        "pp_overlap": ("simulation", "pp_overlap"),
-        "send_latency": ("simulation", "send_latency"),
-        "nvls": ("simulation", "nvls"),
-        "pxn": ("simulation", "pxn"),
+        "dp_overlap": ("analytical", "dp_overlap"),
+        "tp_overlap": ("analytical", "tp_overlap"),
+        "ep_overlap": ("analytical", "ep_overlap"),
+        "pp_overlap": ("analytical", "pp_overlap"),
+        "send_latency": ("ns3", "send_latency"),
+        "nvls": ("ns3", "nvls"),
+        "pxn": ("ns3", "pxn"),
     }
     for key, value in overrides.items():
         if value is None:
@@ -213,6 +242,10 @@ def merge_cli(config: SimaiConfig, **overrides: Any) -> SimaiConfig:
             section_name, attr = mapping[key]
             section = getattr(config, section_name)
             setattr(section, attr, value)
+        elif key == "threads_ns3":
+            config.ns3.threads = value
+        elif key == "threads_m4":
+            config.m4.threads = value
     return config
 
 
@@ -226,22 +259,22 @@ def to_flat_dict(config: SimaiConfig) -> dict[str, Any]:
     return result
 
 
-def ns3_config_to_dict(ns3_cfg: NS3Config) -> dict[str, Any]:
-    """Return the NS3Config as a plain dict (for rendering SimAI.conf)."""
-    return asdict(ns3_cfg)
+def ns3_config_to_simai_conf_dict(ns3_cfg: NS3Config) -> dict[str, Any]:
+    """Return only the SimAI.conf keys from an NS3Config (excludes runtime flags)."""
+    return {k: v for k, v in asdict(ns3_cfg).items() if k in _NS3_CONF_KEYS}
 
 
 def render_simai_conf(ns3_cfg: NS3Config, tmpdir: str) -> str:
-    """Render the NS3Config to SimAI.conf text, with path placeholders filled in.
+    """Render the SimAI.conf-key subset of NS3Config to file text.
 
-    FLOW_FILE, TRACE_FILE, and output files are set to tmpdir-relative paths.
+    Runtime flags (threads, send_latency, nvls, pxn) are excluded.
+    Path-dependent entries (FLOW_FILE, TRACE_FILE, output files) are set
+    to tmpdir-relative absolute paths.
     """
     import os
     lines = []
-    d = ns3_config_to_dict(ns3_cfg)
-    for key, value in d.items():
+    for key, value in ns3_config_to_simai_conf_dict(ns3_cfg).items():
         lines.append(f"{key} {value}")
-    # Add path-dependent entries that the binary hardcodes
     lines += [
         f"FLOW_FILE {os.path.join(tmpdir, 'flow1.txt')}",
         f"TRACE_FILE {os.path.join(tmpdir, 'trace1.txt')}",
