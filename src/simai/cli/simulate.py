@@ -85,13 +85,33 @@ def analytical(
             f"but topology has {metadata['num_gpus']} GPUs."
         )
 
+    gpus_per_server = metadata["gpus_per_server"]
+
+    # The binary (SimAI_analytical) expects bandwidths in GiB/s, but metadata
+    # stores them in Gbps.  Convert: 1 Gbps = 1e9 / (8 * 1024^3) GiB/s ≈ 0.1164
+    def _gbps_to_gibs(gbps: float) -> float:
+        return gbps * 1e9 / (8 * 1024**3)
+
+    nvlink_bw_gbps = metadata.get("nvlink_bandwidth_gbps")
+    nic_bw_gbps = metadata.get("nic_bandwidth_gbps")
+
+    # The binary expects nics_per_server (NICs per physical server), but metadata
+    # stores nics_per_switch (total server NICs at the aggregate switch).
+    # nics_per_server = nics_per_switch * gpus_per_server / num_gpus
+    nics_per_switch = metadata.get("nics_per_switch")
+    nics_per_server = (
+        (nics_per_switch * gpus_per_server) // num_gpus
+        if nics_per_switch is not None
+        else None
+    )
+
     run_analytical(
         workload=workload,
         num_gpus=num_gpus,
-        gpus_per_server=metadata["gpus_per_server"],
-        nvlink_bandwidth=metadata.get("nvlink_bandwidth_gbps"),
-        nic_bandwidth=metadata.get("nic_bandwidth_gbps"),
-        nics_per_server=metadata.get("nics_per_switch"),
+        gpus_per_server=gpus_per_server,
+        nvlink_bandwidth=_gbps_to_gibs(nvlink_bw_gbps) if nvlink_bw_gbps is not None else None,
+        nic_bandwidth=_gbps_to_gibs(nic_bw_gbps) if nic_bw_gbps is not None else None,
+        nics_per_server=nics_per_server,
         gpu_type=metadata.get("gpu_type"),
         dp_overlap=dp_overlap,
         tp_overlap=tp_overlap,
@@ -122,9 +142,9 @@ def ns3(
         typer.Option("--threads", "-t", help="Number of simulation threads."),
     ] = 8,
     send_latency: Annotated[
-        Optional[int],
-        typer.Option("--send-latency", help="Send latency in microseconds."),
-    ] = None,
+        int,
+        typer.Option("--send-latency", help="Send latency in microseconds (default: 0)."),
+    ] = 0,
     nvls: Annotated[
         bool,
         typer.Option("--nvls/--no-nvls", help="Enable NVLink Switch."),

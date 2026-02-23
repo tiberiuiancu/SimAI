@@ -44,7 +44,7 @@ def run_ns3(
     topology: Path,
     config: Path | None = None,
     threads: int = 8,
-    send_latency: int | None = None,
+    send_latency: int = 0,
     nvls: bool = False,
     pxn: bool = False,
     output: Path | None = None,
@@ -77,8 +77,7 @@ def run_ns3(
         # Disable logging to /etc/astra-sim/SimAI.log (requires root to create)
         "AS_LOG_LEVEL": "0",
     }
-    if send_latency is not None:
-        env["AS_SEND_LAT"] = str(send_latency)
+    env["AS_SEND_LAT"] = str(send_latency)
     if nvls:
         env["AS_NVLS_ENABLE"] = "1"
     if pxn:
