@@ -107,42 +107,6 @@ Workload generation supports three modes for compute times:
 
 Mode 2 is recommended for production use as it separates profiling from workload generation.
 
-### 2. Generate a topology
-
-```bash
-simai generate topology --type DCN+ --num-gpus 64 --gpu-type H100 \
-    --nic-bandwidth 100Gbps --nvlink-bandwidth 3600Gbps -o my_topo/
-```
-
-### 3. Run a simulation
-
-**Analytical** (fast, approximate):
-
-```bash
-simai simulate analytical \
-    -w workload.txt \
-    -n my_topo/ \
-    -o results/
-```
-
-**NS-3** (detailed, packet-level):
-
-```bash
-simai simulate ns3 \
-    -w workload.txt \
-    -n my_topo/ \
-    -o results/
-```
-
-**M4** (flow-level, ML-based gray failure, requires local build — see installation note above):
-
-```bash
-simai simulate m4 \
-    -w workload.txt \
-    -n my_topo/ \
-    -o results/
-```
-
 ### 1b. Run a distributed training benchmark (AICB)
 
 For running actual collective operations across a real GPU cluster using AICB:
@@ -190,6 +154,80 @@ Requirements:
 > This is different from `simai profile gpu` (single-GPU kernel timing, no communication)
 > and `simai simulate analytical/ns3` (software simulation, no GPU needed).
 
+### 2. Generate a topology
+
+```bash
+simai generate topology --type DCN+ --num-gpus 64 --gpu-type H100 \
+    --nic-bandwidth 100Gbps --nvlink-bandwidth 3600Gbps -o my_topo.json
+```
+
+Produces a single `topology.json` file (see [Topology JSON](#topology-json) below).
+
+### 3. Run a simulation
+
+**Analytical** (fast, approximate):
+
+```bash
+simai simulate analytical \
+    -w workload.txt \
+    -n my_topo.json \
+    -o results/result.json
+```
+
+**NS-3** (detailed, packet-level):
+
+```bash
+simai simulate ns3 \
+    -w workload.txt \
+    -n my_topo.json \
+    -o results/result.json
+```
+
+**M4** (flow-level, ML-based gray failure, requires local build — see installation note above):
+
+```bash
+simai simulate m4 \
+    -w workload.txt \
+    -n my_topo.json \
+    -o results/result.json
+```
+
+Each simulation writes a `result.json` to the output path and preserves raw binary output in a
+temp directory whose path is recorded in `result.json["raw_output_path"]`.
+
+### 3a. Run with a TOML config file
+
+All simulation options can be captured in a single `run.toml` file:
+
+```toml
+[run]
+output = "results/my_run.json"
+verbose = false
+
+[workload]
+file = "results/workload.txt"
+
+[topology]
+file = "my_topo.json"
+
+[simulation]
+threads = 8
+
+[ns3]
+CC_MODE = 1
+PACKET_PAYLOAD_SIZE = 9000
+```
+
+Then run:
+```bash
+simai simulate ns3 -c run.toml
+# CLI flags override TOML values:
+simai simulate ns3 -c run.toml -w other_workload.txt --threads 16
+```
+
+Workload and topology can also be generated inline from TOML parameters (omit `file` keys and
+add generation parameters such as `framework`, `world_size`, `type`, `num_gpus`, etc.).
+
 ### Installing a dev version
 
 Dev builds are published to TestPyPI on every push to the `dev` branch:
@@ -208,6 +246,55 @@ pip install --index-url https://test.pypi.org/simple/ \
   --extra-index-url https://pypi.org/simple/ \
   "simai==0.3.12.dev42"
 ```
+
+## Topology JSON
+
+`simai generate topology` produces a single `topology.json`:
+
+```json
+{
+  "type": "Spectrum-X",
+  "num_gpus": 128,
+  "gpus_per_server": 8,
+  "gpu_type": "H100",
+  "nic_bandwidth_gbps": 400.0,
+  "nvlink_bandwidth_gbps": 7200.0,
+  "nics_per_switch": 64,
+  "total_nodes": 192,
+  "switch_ids": [128, 129, 130, 131],
+  "links": [
+    {"src": 0, "dst": 128, "bandwidth_gbps": 7200.0, "latency_ms": 0.000025, "error_rate": 0.0}
+  ]
+}
+```
+
+**Legacy directory format** (`topology/` directory with `topology` file + `metadata.json`) is
+still accepted by `simai simulate` with a deprecation warning.
+
+## Result JSON
+
+Each simulation produces a `result.json`:
+
+```json
+{
+  "simai_version": "0.5.0",
+  "run_id": "abc123",
+  "timestamp": "2026-02-23T14:00:00Z",
+  "backend": "analytical",
+  "config": {"workload.framework": "Megatron", "topology.num_gpus": 128},
+  "topology_metadata": {"type": "Spectrum-X", "num_gpus": 128},
+  "workload_header": {"all_gpus": 128, "tp": 8},
+  "results": {
+    "layers": [{"name": "grad_gather", "exposed_comm_us": 1234.5, "compute_us": 567.8}],
+    "summary": {"total_time_us": 99999, "total_exposed_comm_us": 55000, "total_compute_us": 44999},
+    "link_utilization": null,
+    "flow_completion": null
+  },
+  "raw_output_path": "/tmp/simai_analytical_xyz123"
+}
+```
+
+The flat `config` dict is suitable for logging to experiment trackers (MLflow, W&B).
 
 ## Output files
 
