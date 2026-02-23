@@ -197,36 +197,16 @@ temp directory whose path is recorded in `result.json["raw_output_path"]`.
 
 ### 3a. Run with a TOML config file
 
-All simulation options can be captured in a single `run.toml` file:
+All simulation options can be captured in a single `run.toml`:
 
-```toml
-[run]
-output = "results/my_run.json"
-verbose = false
-
-[workload]
-file = "results/workload.txt"
-
-[topology]
-file = "my_topo.json"
-
-[simulation]
-threads = 8
-
-[ns3]
-CC_MODE = 1
-PACKET_PAYLOAD_SIZE = 9000
-```
-
-Then run:
 ```bash
 simai simulate ns3 -c run.toml
+
 # CLI flags override TOML values:
 simai simulate ns3 -c run.toml -w other_workload.txt --threads 16
 ```
 
-Workload and topology can also be generated inline from TOML parameters (omit `file` keys and
-add generation parameters such as `framework`, `world_size`, `type`, `num_gpus`, etc.).
+See the [TOML config reference](#toml-config-reference) below for a full annotated example.
 
 ### Installing a dev version
 
@@ -314,6 +294,151 @@ Produces several files in the output directory:
 - **`*_pfc.txt`** — Priority Flow Control events. Empty means no PFC pauses occurred (no congestion-induced backpressure).
 - **`*_mix.tr`** — Binary NS-3 trace file.
 - **`ncclFlowModel_detailed_*.csv`** — Detailed per-chunk communication breakdown (may be empty for small workloads).
+
+## TOML Config Reference
+
+A `run.toml` file can describe a complete simulation run. All sections and keys are optional —
+omit anything you want to pass via CLI flags instead. CLI flags always override TOML values.
+
+The backend is **not** in the config file; it is always specified as the subcommand
+(`simai simulate analytical|ns3|m4 -c run.toml`).
+
+```toml
+# ─────────────────────────────────────────────
+# [run] — top-level output and verbosity
+# ─────────────────────────────────────────────
+[run]
+output  = "results/my_run.json"  # Path to write result.json (file or directory)
+verbose = false                  # Show binary stdout/stderr
+
+# ─────────────────────────────────────────────
+# [workload] — training workload
+# Choose EITHER file (pre-generated) OR inline params (generated on-the-fly).
+# If both are given, file takes priority.
+# ─────────────────────────────────────────────
+[workload]
+# Option A – use a pre-generated workload file
+file = "results/workload/H100-gpt13b-tp8.txt"
+
+# Option B – generate inline at run time
+# framework    = "Megatron"   # Megatron | DeepSpeed | DeepSeek
+# world_size   = 128          # total number of GPUs
+# tensor_parallel   = 8
+# pipeline_parallel = 1
+# expert_parallel   = 1
+# global_batch = 2048
+# micro_batch  = 8
+# num_layers   = 40
+# hidden_size  = 5120
+# seq_length   = 2048
+# num_attention_heads = 40    # defaults to num_layers if omitted
+# vocab_size   = 32000
+# gpu_type     = "H100"       # label used in output filenames
+# use_flash_attn = false
+
+# ─────────────────────────────────────────────
+# [topology] — network topology
+# Choose EITHER file (pre-generated) OR inline params.
+# ─────────────────────────────────────────────
+[topology]
+# Option A – use a pre-generated topology.json
+file = "results/topology.json"
+
+# Option B – generate inline at run time
+# type              = "Spectrum-X"   # Spectrum-X | AlibabaHPN | DCN+
+# num_gpus          = 128
+# gpus_per_server   = 8
+# nic_bandwidth_gbps    = 400.0
+# nvlink_bandwidth_gbps = 7200.0
+# nics_per_switch   = 64
+
+# ─────────────────────────────────────────────
+# [compute_profile] — optional GPU compute profile
+# ─────────────────────────────────────────────
+[compute_profile]
+# file = "results/h100_profile.txt"
+
+# ─────────────────────────────────────────────
+# [simulation] — shared + per-backend parameters
+# ─────────────────────────────────────────────
+[simulation]
+threads = 8          # parallel simulation threads (NS-3 and M4)
+
+# Analytical overlap ratios (fraction of comm overlapped with compute, 0.0–1.0)
+# dp_overlap = 0.0
+# tp_overlap = 0.0
+# ep_overlap = 0.0
+# pp_overlap = 0.0
+
+# NS-3 specific
+# send_latency = 1   # send latency in microseconds (AS_SEND_LAT env var)
+# nvls = false       # enable NVLink Switch (AS_NVLS_ENABLE)
+# pxn  = false       # enable PCIe cross-node (AS_PXN_ENABLE)
+
+# ─────────────────────────────────────────────
+# [ns3] — NS-3 SimAI.conf parameters
+# All keys map 1:1 to SimAI.conf lines.
+# Only used by `simai simulate ns3`.
+# ─────────────────────────────────────────────
+[ns3]
+ENABLE_QCN                 = 1
+USE_DYNAMIC_PFC_THRESHOLD  = 1
+PACKET_PAYLOAD_SIZE        = 9000
+SIMULATOR_STOP_TIME        = 40000000000000.0
+CC_MODE                    = 1       # congestion control: 1=DCQCN, 3=HPCC, 7=TIMELY, 8=DCTCP
+ALPHA_RESUME_INTERVAL      = 1
+RATE_DECREASE_INTERVAL     = 4
+CLAMP_TARGET_RATE          = 0
+RP_TIMER                   = 900
+EWMA_GAIN                  = 0.00390625
+FAST_RECOVERY_TIMES        = 1
+RATE_AI                    = "50Mb/s"
+RATE_HAI                   = "100Mb/s"
+MIN_RATE                   = "100Mb/s"
+DCTCP_RATE_AI              = "1000Mb/s"
+ERROR_RATE_PER_LINK        = 0.0
+L2_CHUNK_SIZE              = 4000
+L2_ACK_INTERVAL            = 1
+L2_BACK_TO_ZERO            = 0
+HAS_WIN                    = 1
+GLOBAL_T                   = 0
+VAR_WIN                    = 1
+FAST_REACT                 = 1
+U_TARGET                   = 0.95
+MI_THRESH                  = 0
+INT_MULTI                  = 1
+MULTI_RATE                 = 0
+SAMPLE_FEEDBACK            = 0
+PINT_LOG_BASE              = 1.05
+PINT_PROB                  = 1.0
+RATE_BOUND                 = 1
+ACK_HIGH_PRIO              = 0
+LINK_DOWN                  = "0 0 0"
+ENABLE_TRACE               = 1
+KMAX_MAP = "6 25000000000 400 50000000000 800 100000000000 1600 200000000000 1200 400000000000 3200 1600000000000 2400"
+KMIN_MAP = "6 25000000000 100 50000000000 200 100000000000 400 200000000000 300 400000000000 800 1600000000000 600"
+PMAX_MAP = "6 25000000000 0.2 50000000000 0.2 100000000000 0.2 200000000000 0.8 400000000000 0.2 1600000000000 0.2"
+BUFFER_SIZE                = 32
+MON_START                  = 0
+MON_END                    = 20000
+QP_MON_INTERVAL            = 100
+QLEN_MON_INTERVAL          = 10000
+BW_MON_INTERVAL            = 10000
+```
+
+The flat config dict (for experiment tracking):
+
+```python
+from simai.config import load_config, to_flat_dict
+flat = to_flat_dict(load_config("run.toml"))
+# {"run.output": "results/my_run.json", "workload.framework": "Megatron",
+#  "topology.num_gpus": 128, "ns3.CC_MODE": 1, ...}
+
+import mlflow
+mlflow.log_params(flat)
+```
+
+---
 
 ## Differences from upstream SimAI
 
