@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from simai.backends.binary import run_binary
@@ -14,6 +15,14 @@ _M4_MODELS_REL = (
     "astra-sim-alibabacloud", "astra-sim", "network_frontend", "m4", "models"
 )
 _M4_CACHE_DIR = Path.home() / ".cache" / "simai" / "simai-m4"
+
+
+@dataclass
+class SimulationResult:
+    """Structured result from a simulation backend."""
+    output_path: Path
+    raw_output_path: Path
+    parsed: dict
 
 
 def _find_m4_models() -> Path | None:
@@ -58,8 +67,150 @@ def _find_libtorch_lib_dir() -> str | None:
     return None
 
 
+def run_m4(
+    *,
+    workload: Path,
+    topology_file: Path,
+    topology_dict: dict | None = None,
+    threads: int = 1,
+    output: Path | None = None,
+    verbose: bool = False,
+    preserve_raw: bool = True,
+) -> SimulationResult:
+    """Run the SimAI M4 (flow-level, ML-based) simulator backend.
+
+    Steps:
+    1. Write topology in m4 format (Gbps/ms units) in a temp directory.
+       If topology_dict is provided, use unpack_for_m4(); otherwise convert
+       from topology_file (legacy _convert_topology behavior).
+    2. Symlink model files to the path the binary hardcodes relative to cwd.
+    3. Run the binary from the temp directory.
+    4. Return SimulationResult with output_path, raw_output_path, and parsed data.
+
+    Returns a SimulationResult.
+    """
+    workload = workload.resolve()
+    if topology_file is not None:
+        topology_file = topology_file.resolve()
+
+    output_path = Path(output).resolve() if output else Path("results").resolve()
+
+    env: dict[str, str] = {}
+    libtorch_dir = _find_libtorch_lib_dir()
+    if libtorch_dir:
+        existing_ld = os.environ.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = f"{libtorch_dir}:{existing_ld}" if existing_ld else libtorch_dir
+
+    tmpdir_obj = tempfile.mkdtemp(prefix="simai_m4_")
+    tmppath = Path(tmpdir_obj)
+
+    try:
+        converted_topo = tmppath / "topology_m4"
+
+        if topology_dict is not None:
+            from simai.topology.format import unpack_for_m4
+            unpack_for_m4(topology_dict, converted_topo)
+        else:
+            _convert_topology(topology_file, converted_topo)
+
+        # Symlink model files to the hardcoded relative path the binary expects
+        models_dir = _find_m4_models()
+        if models_dir:
+            models_target = (
+                tmppath
+                / "astra-sim-alibabacloud"
+                / "astra-sim"
+                / "network_frontend"
+                / "m4"
+                / "models"
+            )
+            models_target.parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(models_dir, models_target)
+        else:
+            print(
+                "Warning: m4 model files not found. The binary may fail to load models.\n"
+                "Install PyTorch and ensure model files are available, or set SIMAI_PATH."
+            )
+
+        # Create output dir inside tmpdir
+        binary_output_dir = tmppath / "output"
+        binary_output_dir.mkdir()
+
+        args: list[str] = [
+            "-t", str(threads),
+            "-w", str(workload),
+            "-n", str(converted_topo),
+            "-o", str(binary_output_dir),
+        ]
+
+        try:
+            run_binary(BINARY_NAME, args, cwd=tmpdir_obj, env=env, verbose=verbose)
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                "SimAI_m4 binary not found.\n"
+                "Install it with:\n"
+                "  pip install \"simai[m4]\"   # if not already installed\n"
+                "  simai install m4\n"
+                "Or set SIMAI_BIN_PATH to the directory containing SimAI_m4."
+            )
+
+        # Collect result files (prefer binary_output_dir, fall back to tmpdir)
+        result_files = [
+            f for f in binary_output_dir.iterdir()
+        ] if binary_output_dir.exists() else []
+
+        if not result_files:
+            # Some versions write results directly to cwd
+            result_files = [
+                f for f in tmppath.iterdir()
+                if f.name not in ("topology_m4", "astra-sim-alibabacloud", "output")
+            ]
+
+        # Parse results
+        parsed: dict = {"layers": [], "summary": None}
+        from simai.output import parse_m4_results
+        results_dir = binary_output_dir if binary_output_dir.exists() and list(binary_output_dir.iterdir()) else tmppath
+        parsed = parse_m4_results(results_dir)
+
+        if not preserve_raw:
+            if not result_files:
+                print("Warning: no result files generated")
+            elif output_path.suffix and not output_path.is_dir():
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(result_files[0]), str(output_path))
+                for item in result_files[1:]:
+                    if item.exists():
+                        shutil.move(str(item), str(output_path.parent / item.name))
+            else:
+                output_path.mkdir(parents=True, exist_ok=True)
+                for item in result_files:
+                    dest = output_path / item.name
+                    if dest.exists():
+                        if dest.is_dir():
+                            shutil.rmtree(dest)
+                        else:
+                            dest.unlink()
+                    shutil.move(str(item), str(dest))
+            print(f"Results saved to: {output_path}")
+            shutil.rmtree(tmpdir_obj, ignore_errors=True)
+            raw_path = output_path
+        else:
+            print(f"Results saved to: {tmpdir_obj}")
+            raw_path = tmppath
+
+    except Exception:
+        shutil.rmtree(tmpdir_obj, ignore_errors=True)
+        raise
+
+    return SimulationResult(
+        output_path=output_path,
+        raw_output_path=raw_path,
+        parsed=parsed,
+    )
+
+
 def _convert_topology(src: Path, dst: Path) -> None:
-    """Convert topology file to m4 format.
+    """Convert topology file to m4 format (legacy fallback).
 
     Converts bandwidth from raw bps integers to XGbps strings, and
     latency from plain float seconds to Xms strings.
@@ -95,118 +246,3 @@ def _convert_topology(src: Path, dst: Path) -> None:
                 lat_out = f"{float(lat_raw) * 1e3:g}ms"
 
             f.write(f"{src_node} {dst_node} {bw_out} {lat_out} {err_rate}\n")
-
-
-def run_m4(
-    *,
-    workload: Path,
-    topology_file: Path,
-    threads: int = 1,
-    output: Path | None = None,
-    verbose: bool = False,
-) -> Path:
-    """Run the SimAI M4 (flow-level, ML-based) simulator backend.
-
-    Steps:
-    1. Convert topology to m4 format (Gbps/ms units) in a temp directory.
-    2. Symlink model files to the path the binary hardcodes relative to cwd.
-    3. Run the binary from the temp directory.
-    4. Move results to the user's chosen output path.
-
-    Returns the output directory path.
-    """
-    workload = workload.resolve()
-    topology_file = topology_file.resolve()
-
-    output_path = Path(output).resolve() if output else Path("results").resolve()
-
-    env: dict[str, str] = {}
-    libtorch_dir = _find_libtorch_lib_dir()
-    if libtorch_dir:
-        existing_ld = os.environ.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = f"{libtorch_dir}:{existing_ld}" if existing_ld else libtorch_dir
-
-    with tempfile.TemporaryDirectory(prefix="simai_m4_") as tmpdir:
-        tmppath = Path(tmpdir)
-
-        # Convert topology to m4 format
-        converted_topo = tmppath / "topology_m4"
-        _convert_topology(topology_file, converted_topo)
-
-        # Symlink model files to the hardcoded relative path the binary expects
-        models_dir = _find_m4_models()
-        if models_dir:
-            models_target = (
-                tmppath
-                / "astra-sim-alibabacloud"
-                / "astra-sim"
-                / "network_frontend"
-                / "m4"
-                / "models"
-            )
-            models_target.parent.mkdir(parents=True, exist_ok=True)
-            os.symlink(models_dir, models_target)
-        else:
-            print(
-                "Warning: m4 model files not found. The binary may fail to load models.\n"
-                "Install PyTorch and ensure model files are available, or set SIMAI_PATH."
-            )
-
-        # Create output dir inside tmpdir
-        binary_output_dir = tmppath / "output"
-        binary_output_dir.mkdir()
-
-        args: list[str] = [
-            "-t", str(threads),
-            "-w", str(workload),
-            "-n", str(converted_topo),
-            "-o", str(binary_output_dir),
-        ]
-
-        try:
-            run_binary(BINARY_NAME, args, cwd=tmpdir, env=env, verbose=verbose)
-        except FileNotFoundError:
-            raise FileNotFoundError(
-                "SimAI_m4 binary not found.\n"
-                "Install it with:\n"
-                "  pip install \"simai[m4]\"   # if not already installed\n"
-                "  simai install m4\n"
-                "Or set SIMAI_BIN_PATH to the directory containing SimAI_m4."
-            )
-
-        # Collect result files (prefer binary_output_dir, fall back to tmpdir)
-        result_files = [
-            f for f in binary_output_dir.iterdir()
-        ] if binary_output_dir.exists() else []
-
-        if not result_files:
-            # Some versions write results directly to cwd
-            result_files = [
-                f for f in tmppath.iterdir()
-                if f.name not in ("topology_m4", "astra-sim-alibabacloud", "output")
-            ]
-
-        if not result_files:
-            print("Warning: no result files generated")
-            return output_path
-
-        if output_path.suffix and not output_path.is_dir():
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(result_files[0]), str(output_path))
-            for item in result_files[1:]:
-                if item.exists():
-                    shutil.move(str(item), str(output_path.parent / item.name))
-        else:
-            output_path.mkdir(parents=True, exist_ok=True)
-            for item in result_files:
-                dest = output_path / item.name
-                if dest.exists():
-                    if dest.is_dir():
-                        shutil.rmtree(dest)
-                    else:
-                        dest.unlink()
-                shutil.move(str(item), str(dest))
-
-        print(f"Results saved to: {output_path}")
-
-    return output_path

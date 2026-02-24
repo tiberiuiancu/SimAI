@@ -3,7 +3,7 @@
 This document contains everything an agent needs to work on the SimAI codebase without
 additional exploration. Keep it up to date when making structural changes.
 
-**Version**: 0.3.12 | **Python**: ≥3.11 (3.13 used locally) | **Package manager**: `uv`
+**Version**: 0.5.0 | **Python**: ≥3.10 | **Package manager**: `uv`
 
 ---
 
@@ -44,9 +44,11 @@ structures, config patching, binary discovery) and bundles pre-built binaries in
 simai/
 ├── src/simai/              # Python package source
 │   ├── cli/                # Typer CLI commands (app.py, bench.py, generate.py, profile.py, simulate.py)
-│   ├── backends/           # Simulation backends (binary.py, analytical.py, ns3.py)
-│   ├── topology/           # Topology generation (generator.py)
-│   └── workflow/           # Workload generation, GPU profiling, bench (generator.py, profiler.py, bench.py)
+│   ├── backends/           # Simulation backends (binary.py, analytical.py, ns3.py, m4.py)
+│   ├── topology/           # Topology generation (generator.py, format.py)
+│   ├── workflow/           # Workload generation, GPU profiling, bench (generator.py, profiler.py, bench.py)
+│   ├── config.py           # TOML run config schema (SimaiConfig, load_config, to_flat_dict)
+│   └── output.py           # Result JSON builder + CSV parsers (build_result_json, write_result_json)
 ├── vendor/
 │   ├── simai/              # Git submodule → https://github.com/aliyun/SimAI.git
 │   │   ├── aicb/           # AICB workload generator
@@ -138,10 +140,11 @@ For editable installs, resource discovery falls back to the `vendor/simai/` subm
 - `deepgemm()`: Installs DeepSeekAI/DeepGEMM (CUDA kernels for DeepSeek models) from source. Clones to `~/.cache/simai/DeepGEMM` by default. Accepts `--src` and `--git-url`.
 
 **`simulate.py`**:
-- `analytical()`: Fast bandwidth-based simulation. Accepts workload + topology dir.
-  Overlap parameters: `--dp-overlap`, `--tp-overlap`, `--ep-overlap`, `--pp-overlap`.
-- `ns3()`: Detailed packet-level simulation. Parameters: threads (default 8),
-  send_latency, NVLS/PXN flags.
+- `analytical()`, `ns3()`, `m4()`: All accept `--config/-c` for a TOML run config file (CLI
+  flags always override). Topology can be a `topology.json` file or legacy directory.
+  Each command writes a `result.json` to the output path after running.
+  `analytical()` overlap parameters: `--dp-overlap`, `--tp-overlap`, `--ep-overlap`, `--pp-overlap`.
+  `ns3()` uses `[ns3]` TOML section to render `SimAI.conf` in tmpdir (replaces regex-patching).
 
 ### Workflow Layer (`src/simai/workflow/`)
 
@@ -171,8 +174,16 @@ For editable installs, resource discovery falls back to the `vendor/simai/` subm
 - Locates `gen_Topo_Template.py` via `_find_topo_root()` (3-tier: vendored → `SIMAI_PATH` → vendor submodule)
 - Builds mock `argparse.Namespace` matching upstream script's expectations
 - Runs in a temp directory to isolate side effects
-- Outputs: `topology` file + `metadata.json`
+- **Output**: single `topology.json` with metadata + `total_nodes`, `switch_ids`, `links` array, and `_topology_text` (raw text for exact NS3 reconstruction)
+- Legacy directory output still supported: if `output` path has no `.json` suffix, writes `topology.json` inside the directory
 - Supported types: Spectrum-X (NVIDIA rail-optimized), DCN+ (traditional), AlibabaHPN (multi-plane)
+
+**`format.py`** (new) - Topology format helpers:
+- `load_topology(path)`: loads `topology.json` or legacy directory (auto-detects, emits `DeprecationWarning`)
+- `unpack_for_ns3(topo, dest)`: writes raw NS3 topology text to dest (uses `_topology_text` if available)
+- `unpack_for_m4(topo, dest)`: writes M4 topology format (Gbps/ms units) to dest
+- `topology_to_analytical_args(topo)`: returns `dict` of kwargs for `run_analytical()`
+- `_parse_topology_text(text)`: parses topology text into `{total_nodes, switch_ids, links}`
 
 ### Backend Layer (`src/simai/backends/`)
 
@@ -182,20 +193,27 @@ For editable installs, resource discovery falls back to the `vendor/simai/` subm
   runs via `subprocess.run()`
 
 **`analytical.py`** - `run_analytical()`:
-- `_find_simai_root()`: Locates ratio CSVs and `SimAI.conf` (4-tier search)
-- Symlinks ratio CSVs into temp dir, runs binary from there, moves results to output path
+- `_find_simai_root()`: Locates ratio CSVs (4-tier search)
+- Returns `SimulationResult(output_path, raw_output_path, parsed)` dataclass
+- `preserve_raw=True` (default): keeps tmpdir alive, sets `raw_output_path = tmpdir`
+- `preserve_raw=False`: legacy behavior — moves files to output_path, deletes tmpdir
 
 **`ns3.py`** - `run_ns3()`:
 - `_find_default_config()`: Locates `SimAI.conf`
-- Patches config at runtime to replace `/etc/astra-sim/simulation/` with relative paths
-- Creates dummy `flow1.txt`, `trace1.txt` inputs
-- Sets env vars for log level, NVLS, PXN flags
+- New: `ns3_conf: dict | None` parameter — if provided, renders dict to `SimAI.conf` in tmpdir
+  (key + space + value per line), replacing both the bundled config and the old regex-patching
+- Legacy: if `ns3_conf` is None and `config` is given, patches `/etc/astra-sim/simulation/` paths
+- Returns `SimulationResult`
 
 **`m4.py`** - `run_m4()`:
-- `_find_m4_models()`: Locates bundled `.pt` model files (3-tier: `_vendor/m4_models/` → editable vendor path → `SIMAI_PATH`)
-- `_find_libtorch_lib_dir()`: Returns the torch lib dir for setting `LD_LIBRARY_PATH` at runtime
-- `_convert_topology()`: Converts topology file to m4 format (bandwidth → XGbps, latency → Xms). Handles both raw numeric values and pre-formatted unit strings (e.g. `7200Gbps`, `0.000025ms`)
-- Symlinks model files to the path the binary hardcodes relative to cwd, runs in a temp dir
+- `_find_m4_models()`: Locates `.pt` model files (3-tier)
+- New: `topology_dict: dict | None` parameter — if provided, calls `unpack_for_m4()` to write the
+  m4 topology format (replaces `_convert_topology()`). Falls back to `_convert_topology()` if None
+- `_convert_topology()` kept as legacy fallback
+- Returns `SimulationResult`
+
+All three backends define `SimulationResult = dataclass(output_path, raw_output_path, parsed)`.
+`parsed` is a dict with `layers`, `summary`, `link_utilization`, `flow_completion` keys.
 
 ---
 
@@ -399,23 +417,8 @@ HYBRID_TRANSFORMER_FWD_IN_BCKWD model_parallel_NPU_group: <TP> ep: <EP> pp: <PP>
 
 Comm types: `ALLREDUCE`, `ALLGATHER`, `REDUCESCATTER`, `ALLTOALL`, `ALLTOALL_EP`, `NONE`
 
-### Topology Directory
+### Topology JSON (`topology.json`)
 
-```
-topology_dir/
-├── topology       # Space-separated link table
-└── metadata.json  # Generation parameters
-```
-
-`topology` file format:
-```
-<total_nodes> <gpus_per_server> <nv_switches> <network_switches> <links> <gpu_type>
-<switch_node_ids...>
-<src> <dst> <bandwidth_bps> <latency_ms> <error_rate>
-...
-```
-
-`metadata.json` format:
 ```json
 {
   "type": "Spectrum-X",
@@ -424,11 +427,54 @@ topology_dir/
   "gpu_type": "H100",
   "nic_bandwidth_gbps": 400.0,
   "nvlink_bandwidth_gbps": 7200.0,
-  "nics_per_switch": 32
+  "nics_per_switch": 64,
+  "total_nodes": 192,
+  "switch_ids": [128, 129, 130, 131],
+  "links": [
+    {"src": 0, "dst": 128, "bandwidth_gbps": 7200.0, "latency_ms": 0.000025, "error_rate": 0.0}
+  ],
+  "_topology_text": "<raw text from gen_Topo_Template.py>"
 }
 ```
 
-### Simulation Results
+`_topology_text` is an internal field used by `unpack_for_ns3()` to reconstruct the exact
+original NS3 format. It is stripped from `result.json` output.
+
+**Legacy directory format** (deprecated, still accepted):
+```
+topology_dir/
+├── topology       # Space-separated link table
+└── metadata.json  # Generation parameters
+```
+
+### TOML Run Config (`run.toml`)
+
+Sections: `[run]`, `[workload]`, `[topology]`, `[compute_profile]`, `[simulation]`, `[ns3]`.
+See `src/simai/config.py` for all fields and defaults. The `[ns3]` section maps 1:1 to
+`SimAI.conf` keys. `to_flat_dict(cfg)` collapses to `section.key` for experiment trackers.
+
+### Result JSON (`result.json`)
+
+```json
+{
+  "simai_version": "0.5.0",
+  "run_id": "<8-char hex>",
+  "timestamp": "<ISO 8601 UTC>",
+  "backend": "analytical|ns3|m4",
+  "config": {"workload.framework": "Megatron", ...},
+  "topology_metadata": {"type": "Spectrum-X", "num_gpus": 128, ...},
+  "workload_header": {"all_gpus": 128, "tp": 8, ...},
+  "results": {
+    "layers": [{"name": "...", "exposed_comm_us": 1234.5, "compute_us": 567.8}],
+    "summary": {"total_time_us": ..., "total_exposed_comm_us": ..., "total_compute_us": ...},
+    "link_utilization": null,
+    "flow_completion": null
+  },
+  "raw_output_path": "/tmp/simai_analytical_xyz123"
+}
+```
+
+### Simulation Raw Output Files
 
 - `ncclFlowModel_EndToEnd.csv`: Per-layer timing (TP/DP/EP/PP exposed comm, compute)
 - `ncclFlowModel_*_utilization_*.csv`: Link utilization statistics
@@ -523,5 +569,4 @@ simai simulate ns3 -w workload_gpt175b.txt -n topology_h100_128gpu/ \
 
 ---
 
-**Last Updated**: 2026-02-18 (add `simai bench training`: cli/bench.py, workflow/bench.py, tests/run_bench.slurm) | **Human reference**: [`README.md`](./README.md)
-
+**Last Updated**: 2026-02-24 (rebase onto dev: merge bench training + 0.5.0 unified config/topology.json/result.json features) | **Human reference**: [`README.md`](./README.md)
