@@ -102,10 +102,7 @@ def generate_workload(
     Returns the path to the generated workload file.
     """
     # Import shared profiling functions
-    from simai.workflow.profiler import _create_model_args, _create_model, _patch_optional_cuda_modules
-
-    # Patch optional CUDA modules before any aicb imports
-    _patch_optional_cuda_modules()
+    from simai.workflow.profiler import _create_model_args, _create_model
 
     # Create model configuration using shared function
     args = _create_model_args(

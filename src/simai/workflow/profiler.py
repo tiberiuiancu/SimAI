@@ -11,7 +11,6 @@ import argparse
 import importlib.util
 import sys
 from pathlib import Path
-from types import ModuleType
 
 from simai.workflow.generator import (
     _aicb_on_path,
@@ -19,58 +18,6 @@ from simai.workflow.generator import (
     _find_aicb_root,
     _get_padded_vocab_size,
 )
-
-
-def _patch_optional_cuda_modules():
-    """Monkey-patch optional CUDA modules with fallback implementations.
-
-    This allows aicb code to import these modules without errors, falling back
-    to PyTorch implementations when the optimized CUDA extensions aren't available.
-    """
-    import torch
-
-    # Patch apex.contrib.layer_norm if not available
-    if 'apex' not in sys.modules:
-        try:
-            import apex
-        except ImportError:
-            # Create fake apex module structure
-            apex = ModuleType('apex')
-            apex.contrib = ModuleType('apex.contrib')
-            apex.contrib.layer_norm = ModuleType('apex.contrib.layer_norm')
-            apex.contrib.layer_norm.layer_norm = ModuleType('apex.contrib.layer_norm.layer_norm')
-
-            # Create FastLayerNormFN that raises ImportError when used
-            class FastLayerNormFN:
-                @staticmethod
-                def apply(*args, **kwargs):
-                    raise ImportError("apex FastLayerNormFN not available")
-
-            apex.contrib.layer_norm.layer_norm.FastLayerNormFN = FastLayerNormFN
-
-            sys.modules['apex'] = apex
-            sys.modules['apex.contrib'] = apex.contrib
-            sys.modules['apex.contrib.layer_norm'] = apex.contrib.layer_norm
-            sys.modules['apex.contrib.layer_norm.layer_norm'] = apex.contrib.layer_norm.layer_norm
-
-    # Patch scaled_upper_triang_masked_softmax_cuda if not available
-    if 'scaled_upper_triang_masked_softmax_cuda' not in sys.modules:
-        try:
-            import scaled_upper_triang_masked_softmax_cuda
-        except ImportError:
-            # Create fake module that will make is_kernel_available return False
-            fake_module = ModuleType('scaled_upper_triang_masked_softmax_cuda')
-            sys.modules['scaled_upper_triang_masked_softmax_cuda'] = fake_module
-
-    # Patch deep_gemm if not available
-    if 'deep_gemm' not in sys.modules:
-        try:
-            import deep_gemm
-        except ImportError:
-            # Create fake deep_gemm module with ceil_div fallback
-            deep_gemm = ModuleType('deep_gemm')
-            deep_gemm.ceil_div = lambda a, b: (a + b - 1) // b
-            sys.modules['deep_gemm'] = deep_gemm
 
 
 def _create_model_args(
@@ -223,9 +170,6 @@ def _create_model(args: argparse.Namespace):
     Raises:
         ImportError: If AICB cannot be found or imported
     """
-    # Patch optional CUDA modules before importing aicb code
-    _patch_optional_cuda_modules()
-
     with _aicb_on_path():
         from workload_generator.mocked_model.training.MockedMegatron import (
             MegatronModel,

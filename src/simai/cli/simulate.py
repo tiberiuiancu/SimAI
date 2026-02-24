@@ -151,18 +151,19 @@ def analytical(
     wl_path = Path(cfg.workload.file) if cfg.workload.file else workload
     topo_path = Path(cfg.topology.file) if cfg.topology.file else topology
 
-    if wl_path is None:
-        raise typer.BadParameter("--workload / -w is required (or set workload.file in TOML config)")
-    if topo_path is None:
-        raise typer.BadParameter("--topology / -n is required (or set topology.file in TOML config)")
-
     # Handle on-the-fly workload generation from TOML [workload] section
-    if cfg.workload.file is None and wl_path is None:
-        wl_path = _generate_workload_from_config(cfg)
+    if wl_path is None:
+        if cfg.workload.num_layers:
+            wl_path = _generate_workload_from_config(cfg)
+        else:
+            raise typer.BadParameter("--workload / -w is required (or set workload.file or workload params in TOML config)")
 
     # Handle on-the-fly topology generation from TOML [topology] section
-    if cfg.topology.file is None and topo_path is None:
-        topo_path = _generate_topology_from_config(cfg)
+    if topo_path is None:
+        if cfg.topology.type:
+            topo_path = _generate_topology_from_config(cfg)
+        else:
+            raise typer.BadParameter("--topology / -n is required (or set topology.file or topology params in TOML config)")
 
     topo = _load_topology(topo_path)
     num_gpus = _parse_workload_gpu_count(wl_path) or topo.get("num_gpus")
@@ -278,9 +279,15 @@ def ns3(
     topo_path = Path(cfg.topology.file) if cfg.topology.file else topology
 
     if wl_path is None:
-        raise typer.BadParameter("--workload / -w is required (or set workload.file in TOML config)")
+        if cfg.workload.num_layers:
+            wl_path = _generate_workload_from_config(cfg)
+        else:
+            raise typer.BadParameter("--workload / -w is required (or set workload.file or workload params in TOML config)")
     if topo_path is None:
-        raise typer.BadParameter("--topology / -n is required (or set topology.file in TOML config)")
+        if cfg.topology.type:
+            topo_path = _generate_topology_from_config(cfg)
+        else:
+            raise typer.BadParameter("--topology / -n is required (or set topology.file or topology params in TOML config)")
 
     topo = _load_topology(topo_path)
 
@@ -361,9 +368,15 @@ def m4(
     topo_path = Path(cfg.topology.file) if cfg.topology.file else topology
 
     if wl_path is None:
-        raise typer.BadParameter("--workload / -w is required (or set workload.file in TOML config)")
+        if cfg.workload.num_layers:
+            wl_path = _generate_workload_from_config(cfg)
+        else:
+            raise typer.BadParameter("--workload / -w is required (or set workload.file or workload params in TOML config)")
     if topo_path is None:
-        raise typer.BadParameter("--topology / -n is required (or set topology.file in TOML config)")
+        if cfg.topology.type:
+            topo_path = _generate_topology_from_config(cfg)
+        else:
+            raise typer.BadParameter("--topology / -n is required (or set topology.file or topology params in TOML config)")
 
     topo = _load_topology(topo_path)
 
