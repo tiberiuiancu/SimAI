@@ -95,16 +95,14 @@ def generate_workload(
     comp_filepath: str | None = None,
     gpu_type: str | None = None,
     output: Path | None = None,
+    aiob_output_dir: Path | None = None,
 ) -> Path:
     """Generate a SimAI workload file by driving AICB's code directly.
 
     Returns the path to the generated workload file.
     """
     # Import shared profiling functions
-    from simai.workflow.profiler import _create_model_args, _create_model, _patch_optional_cuda_modules
-
-    # Patch optional CUDA modules before any aicb imports
-    _patch_optional_cuda_modules()
+    from simai.workflow.profiler import _create_model_args, _create_model
 
     # Create model configuration using shared function
     args = _create_model_args(
@@ -153,6 +151,25 @@ def generate_workload(
             args.model_param = sum(p.numel() for p in params)
             if comp_filepath is None:
                 comp_filepath = get_comp_out(args)
+                # get_comp_out writes to results/aiob_outputs/ relative to cwd.
+                # Move it to aiob_output_dir if specified, or print its location.
+                generated_path = Path(comp_filepath)
+                if generated_path.is_file():
+                    if aiob_output_dir is not None:
+                        aiob_output_dir = Path(aiob_output_dir)
+                        aiob_output_dir.mkdir(parents=True, exist_ok=True)
+                        dest = aiob_output_dir / generated_path.name
+                        import shutil as _shutil
+                        _shutil.move(str(generated_path), str(dest))
+                        comp_filepath = str(dest)
+                        # Clean up the now-empty aiob_outputs directory if empty
+                        parent = generated_path.parent
+                        try:
+                            parent.rmdir()
+                        except OSError:
+                            pass
+                    else:
+                        print(f"Note: compute profile written to: {generated_path}")
             compute_cache = extract_averages(comp_filepath, args)
 
         # Generate workload

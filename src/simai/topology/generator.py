@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -168,19 +167,23 @@ def generate_topology(
             if not generated:
                 raise RuntimeError("Topology generation produced no output file")
             topo_file = generated[0]
+            topo_text = topo_file.read_text()
 
-            # Determine output directory
-            if output is not None:
-                output_dir = Path(output).resolve()
-            else:
-                output_dir = Path(topo_file.name).resolve()
-            output_dir.mkdir(parents=True, exist_ok=True)
+        # Parse topology text into structured data
+        from simai.topology.format import _parse_topology_text
+        parsed = _parse_topology_text(topo_text)
 
-            # Move topology file
-            shutil.move(str(topo_file), str(output_dir / "topology"))
+        # Determine output path
+        if output is not None:
+            output_path = Path(output).resolve()
+        else:
+            # Default: topology.json named after the topology type
+            output_path = Path(f"{topology_type.replace(' ', '_')}_topology.json").resolve()
 
-        # Write metadata.json
-        metadata = {
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Build the topology.json combining metadata + parsed structure
+        topology_data = {
             "type": topology_type,
             "num_gpus": parameters["gpu"],
             "gpus_per_server": parameters["gpu_per_server"],
@@ -188,10 +191,22 @@ def generate_topology(
             "nic_bandwidth_gbps": _parse_bandwidth(parameters["bandwidth"]),
             "nvlink_bandwidth_gbps": _parse_bandwidth(parameters["nvlink_bw"]),
             "nics_per_switch": parameters["nics_per_aswitch"],
+            "total_nodes": parsed["total_nodes"],
+            "switch_ids": parsed["switch_ids"],
+            "links": parsed["links"],
+            "_topology_text": topo_text,
         }
-        with open(output_dir / "metadata.json", "w") as f:
-            json.dump(metadata, f, indent=2)
+
+        # If output_path has no .json suffix, treat as directory (legacy compat)
+        if output_path.suffix != ".json":
+            output_path.mkdir(parents=True, exist_ok=True)
+            json_path = output_path / "topology.json"
+        else:
+            json_path = output_path
+
+        with open(json_path, "w") as f:
+            json.dump(topology_data, f, indent=2)
             f.write("\n")
 
-        print(f"Topology saved to: {output_dir}")
-        return output_dir
+        print(f"Topology saved to: {json_path}")
+        return json_path

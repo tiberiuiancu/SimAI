@@ -141,6 +141,10 @@ def workload(
     # Enable aiob profiling if either live profiling or pre-recorded profile is requested
     aiob_enable = profile_compute or (compute_profile is not None)
 
+    # If --output is given, redirect aiob compute profile there to avoid
+    # the results/aiob_outputs/ side effect in cwd.
+    aiob_output_dir = output.parent if output is not None else None
+
     generate_workload(
         framework=framework,
         world_size=num_gpus,
@@ -166,6 +170,7 @@ def workload(
         comp_filepath=str(compute_profile) if compute_profile else None,
         gpu_type=gpu_type,
         output=output,
+        aiob_output_dir=aiob_output_dir,
     )
 
 

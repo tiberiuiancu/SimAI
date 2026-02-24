@@ -23,6 +23,19 @@ pip install "simai[m4]"      # installs torch dependency
 simai install m4             # compiles SimAI_m4 binary (requires CUDA torch + cmake/make/gcc)
 ```
 
+For NVIDIA Apex (PyTorch CUDA extensions) and DeepGEMM (DeepSeek CUDA kernels):
+
+```bash
+simai install apex           # Installs NVIDIA/apex (for AICB profiling, optional)
+simai install deepgemm       # Installs DeepSeekAI/DeepGEMM (for DeepSeek models, optional)
+```
+
+> **Note**: If you see a RuntimeError about CUDA version mismatch when installing Apex, you can use:
+> ```bash
+> simai install apex --skip-cuda-version-check
+> ```
+> This will patch `setup.py` to skip the CUDA version check (at your own risk). See [discussion](https://github.com/NVIDIA/apex/pull/323#discussion_r287021798).
+
 > **Note**: The M4 binary (`SimAI_m4`) is **not** included in the PyPI wheel. Run
 > `simai install m4` to compile it from source (requires CUDA-enabled PyTorch and cmake/make/gcc).
 > On first run the source is cloned automatically from GitHub into `~/.cache/simai/simai-m4/`;
@@ -94,12 +107,61 @@ Workload generation supports three modes for compute times:
 
 Mode 2 is recommended for production use as it separates profiling from workload generation.
 
+### 1b. Run a distributed training benchmark (AICB)
+
+For running actual collective operations across a real GPU cluster using AICB:
+
+```bash
+# Single-node smoke test (no SLURM needed)
+simai bench training \
+    --nproc-per-node 4 \
+    --world-size 4 \
+    --framework Megatron \
+    --num-layers 24 \
+    --hidden-size 1024 \
+    --num-heads 16 \
+    --global-batch-size 8 \
+    --micro-batch-size 1 \
+    --epochs 1 \
+    --output results/bench/
+```
+
+With a GPU compute profile for realistic AIOB compute-communication overlap:
+
+```bash
+simai bench training \
+    --nproc-per-node 4 --world-size 4 \
+    --num-layers 24 --hidden-size 1024 --num-heads 16 \
+    --global-batch-size 8 --micro-batch-size 1 \
+    --comp-profile h100_profile.txt \
+    --output results/bench/
+```
+
+**Multi-node SLURM** — SLURM env vars (`SLURM_NNODES`, `SLURM_NODEID`, `SLURM_GPUS_PER_NODE`,
+`MASTER_ADDR`, `MASTER_PORT`) are auto-detected, so each `srun` task needs no extra flags:
+
+```bash
+# Use the provided template (edit partition / model config as needed)
+sbatch tests/run_bench.slurm
+```
+
+Requirements:
+- PyTorch with CUDA: `pip install "simai[profiling]"`
+- CUDA-capable GPUs
+- AICB source (vendored in wheel, or set `SIMAI_PATH`)
+
+> **Note**: `simai bench training` runs actual NCCL collective operations on real GPUs.
+> This is different from `simai profile gpu` (single-GPU kernel timing, no communication)
+> and `simai simulate analytical/ns3` (software simulation, no GPU needed).
+
 ### 2. Generate a topology
 
 ```bash
 simai generate topology --type DCN+ --num-gpus 64 --gpu-type H100 \
-    --nic-bandwidth 100Gbps --nvlink-bandwidth 3600Gbps -o my_topo/
+    --nic-bandwidth 100Gbps --nvlink-bandwidth 3600Gbps -o my_topo.json
 ```
+
+Produces a single `topology.json` file (see [Topology JSON](#topology-json) below).
 
 ### 3. Run a simulation
 
@@ -108,8 +170,8 @@ simai generate topology --type DCN+ --num-gpus 64 --gpu-type H100 \
 ```bash
 simai simulate analytical \
     -w workload.txt \
-    -n my_topo/ \
-    -o results/
+    -n my_topo.json \
+    -o results/result.json
 ```
 
 **NS-3** (detailed, packet-level):
@@ -117,8 +179,8 @@ simai simulate analytical \
 ```bash
 simai simulate ns3 \
     -w workload.txt \
-    -n my_topo/ \
-    -o results/
+    -n my_topo.json \
+    -o results/result.json
 ```
 
 **M4** (flow-level, ML-based gray failure, requires local build — see installation note above):
@@ -126,9 +188,25 @@ simai simulate ns3 \
 ```bash
 simai simulate m4 \
     -w workload.txt \
-    -n my_topo/ \
-    -o results/
+    -n my_topo.json \
+    -o results/result.json
 ```
+
+Each simulation writes a `result.json` to the output path and preserves raw binary output in a
+temp directory whose path is recorded in `result.json["raw_output_path"]`.
+
+### 3a. Run with a TOML config file
+
+All simulation options can be captured in a single `run.toml`:
+
+```bash
+simai simulate ns3 -c run.toml
+
+# CLI flags override TOML values:
+simai simulate ns3 -c run.toml -w other_workload.txt --threads 16
+```
+
+See the [TOML config reference](#toml-config-reference) below for a full annotated example.
 
 ### Installing a dev version
 
@@ -149,6 +227,65 @@ pip install --index-url https://test.pypi.org/simple/ \
   "simai==0.3.12.dev42"
 ```
 
+## Topology JSON
+
+`simai generate topology` produces a single `topology.json`:
+
+```json
+{
+  "type": "Spectrum-X",
+  "num_gpus": 128,
+  "gpus_per_server": 8,
+  "gpu_type": "H100",
+  "nic_bandwidth_gbps": 400.0,
+  "nvlink_bandwidth_gbps": 7200.0,
+  "nics_per_switch": 64,
+  "total_nodes": 192,
+  "switch_ids": [128, 129, 130, 131],
+  "links": [
+    {"src": 0, "dst": 128, "bandwidth_gbps": 7200.0, "latency_ms": 0.000025, "error_rate": 0.0}
+  ]
+}
+```
+
+**Legacy directory format** (`topology/` directory with `topology` file + `metadata.json`) is
+still accepted by `simai simulate` with a deprecation warning.
+
+## Result JSON
+
+Each simulation produces a `result.json`:
+
+```json
+{
+  "simai_version": "0.5.0",
+  "run_id": "abc123",
+  "timestamp": "2026-02-23T14:00:00Z",
+  "backend": "analytical",
+  "config": {"workload.framework": "Megatron", "topology.num_gpus": 128},
+  "topology_metadata": {"type": "Spectrum-X", "num_gpus": 128},
+  "workload_header": {"all_gpus": 128, "tp": 8},
+  "results": {
+    "summary": {
+      "expose_dp_comm_us": 225737,
+      "expose_dp_ep_comm_us": 0,
+      "expose_tp_comm_us": 109320,
+      "expose_ep_comm_us": 0,
+      "expose_pp_comm_us": 0,
+      "bubble_time_us": 35817,
+      "total_comp_us": 10080804,
+      "total_exposed_comm_us": 335057,
+      "total_time_us": 10451678
+    },
+    "layers": [{"name": "layer_0", "exposed_comm_us": 1234.5, "compute_us": 567.8, "total_us": 1802.3}],
+    "link_utilization": null,
+    "flow_completion": null
+  },
+  "raw_output_path": "/tmp/simai_analytical_xyz123"
+}
+```
+
+The flat `config` dict is suitable for logging to experiment trackers (MLflow, W&B).
+
 ## Output files
 
 ### Analytical backend
@@ -167,6 +304,171 @@ Produces several files in the output directory:
 - **`*_pfc.txt`** — Priority Flow Control events. Empty means no PFC pauses occurred (no congestion-induced backpressure).
 - **`*_mix.tr`** — Binary NS-3 trace file.
 - **`ncclFlowModel_detailed_*.csv`** — Detailed per-chunk communication breakdown (may be empty for small workloads).
+
+## TOML Config Reference
+
+A `run.toml` captures a complete simulation run. All sections and every key within them are
+optional — omit anything you want to supply via CLI flags instead. CLI flags always override
+TOML values. The backend is **not** in the config; it is always the subcommand
+(`simai simulate analytical|ns3|m4 -c run.toml`).
+
+```toml
+# ─────────────────────────────────────────────────────────────────────────────
+# [run] — output path and verbosity
+# ─────────────────────────────────────────────────────────────────────────────
+[run]
+output  = "results/my_run.json"   # Where to write result.json (file or dir)
+verbose = false                   # Show binary stdout/stderr
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [workload] — training workload description
+# Use EITHER file (pre-generated .txt) OR inline params (generated on the fly).
+# If both are present, file takes priority.
+# ─────────────────────────────────────────────────────────────────────────────
+[workload]
+# Option A – pre-existing workload file
+file = "results/workload/H100-gpt13b-tp8.txt"
+
+# Option B – generate inline (comment out `file` and uncomment below)
+# framework           = "Megatron"  # Megatron | DeepSpeed | DeepSeek
+# world_size          = 128         # total number of GPUs
+# tensor_parallel     = 8
+# pipeline_parallel   = 1
+# expert_parallel     = 1
+# global_batch        = 2048
+# micro_batch         = 8
+# num_layers          = 40
+# hidden_size         = 5120
+# seq_length          = 2048
+# num_attention_heads = 40          # defaults to num_layers if omitted
+# vocab_size          = 32000
+# gpu_type            = "H100"      # label used in output filenames
+# use_flash_attn      = false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [topology] — network topology
+# Use EITHER file (topology.json) OR inline params.
+# ─────────────────────────────────────────────────────────────────────────────
+[topology]
+# Option A – pre-existing topology.json
+file = "results/topology.json"
+
+# Option B – generate inline
+# type                  = "Spectrum-X"   # Spectrum-X | AlibabaHPN | DCN+
+# num_gpus              = 128
+# gpus_per_server       = 8
+# nic_bandwidth_gbps    = 400.0
+# nvlink_bandwidth_gbps = 7200.0
+# nics_per_switch       = 64
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [compute_profile] — optional GPU kernel timing profile
+# Generated by `simai profile gpu` or `simai generate workload --profile-compute`
+# ─────────────────────────────────────────────────────────────────────────────
+[compute_profile]
+# file = "results/h100_profile.txt"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [analytical] — parameters for `simai simulate analytical`
+# ─────────────────────────────────────────────────────────────────────────────
+[analytical]
+# Fraction of each communication type overlapped with compute (0.0–1.0).
+# 0.0 = fully exposed (default), 1.0 = fully hidden.
+dp_overlap = 0.0   # data-parallel (AllReduce / ReduceScatter+AllGather)
+tp_overlap = 0.0   # tensor-parallel (AllReduce / AllGather)
+ep_overlap = 0.0   # expert-parallel (AllToAll)
+pp_overlap = 0.0   # pipeline-parallel bubble overlap
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [m4] — parameters for `simai simulate m4`
+# ─────────────────────────────────────────────────────────────────────────────
+[m4]
+threads = 1   # number of parallel simulation threads
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [ns3] — parameters for `simai simulate ns3`
+#
+# Runtime flags (threads / send_latency / nvls / pxn) and all SimAI.conf keys.
+# Every key is optional; unset keys fall back to the defaults shown below.
+# SimAI.conf keys are written verbatim to the generated config file at runtime.
+# ─────────────────────────────────────────────────────────────────────────────
+[ns3]
+# ── Runtime flags ────────────────────────────────────────────────────────────
+threads      = 8      # parallel simulation threads
+# send_latency = 1    # send latency override in µs (sets AS_SEND_LAT)
+# nvls         = false  # enable NVLink Switch collective (AS_NVLS_ENABLE)
+# pxn          = false  # enable PCIe cross-node (AS_PXN_ENABLE)
+
+# ── Congestion control ───────────────────────────────────────────────────────
+CC_MODE                   = 1       # 1=DCQCN  3=HPCC  7=TIMELY  8=DCTCP
+ENABLE_QCN                = 1
+USE_DYNAMIC_PFC_THRESHOLD = 1
+ALPHA_RESUME_INTERVAL     = 1
+RATE_DECREASE_INTERVAL    = 4
+CLAMP_TARGET_RATE         = 0
+RP_TIMER                  = 900
+EWMA_GAIN                 = 0.00390625
+FAST_RECOVERY_TIMES       = 1
+RATE_AI                   = "50Mb/s"
+RATE_HAI                  = "100Mb/s"
+MIN_RATE                  = "100Mb/s"
+DCTCP_RATE_AI             = "1000Mb/s"
+U_TARGET                  = 0.95    # target link utilisation (HPCC)
+MI_THRESH                 = 0
+INT_MULTI                 = 1
+MULTI_RATE                = 0
+SAMPLE_FEEDBACK           = 0
+PINT_LOG_BASE             = 1.05
+PINT_PROB                 = 1.0
+RATE_BOUND                = 1
+HAS_WIN                   = 1
+GLOBAL_T                  = 0
+VAR_WIN                   = 1
+FAST_REACT                = 1
+
+# ── Packet / link ────────────────────────────────────────────────────────────
+PACKET_PAYLOAD_SIZE       = 9000    # bytes (jumbo frames)
+ERROR_RATE_PER_LINK       = 0.0
+LINK_DOWN                 = "0 0 0" # "switch port time" — disable a link mid-sim
+ACK_HIGH_PRIO             = 0
+
+# ── L2 retransmission ────────────────────────────────────────────────────────
+L2_CHUNK_SIZE             = 4000
+L2_ACK_INTERVAL           = 1
+L2_BACK_TO_ZERO           = 0
+
+# ── Simulation timing ────────────────────────────────────────────────────────
+SIMULATOR_STOP_TIME       = 40000000000000.0   # nanoseconds
+
+# ── ECN thresholds (per link-speed) ─────────────────────────────────────────
+# Format: "<n_entries> <bps1> <val1> <bps2> <val2> …"
+KMAX_MAP = "6 25000000000 400 50000000000 800 100000000000 1600 200000000000 1200 400000000000 3200 1600000000000 2400"
+KMIN_MAP = "6 25000000000 100 50000000000 200 100000000000 400 200000000000 300 400000000000 800 1600000000000 600"
+PMAX_MAP = "6 25000000000 0.2 50000000000 0.2 100000000000 0.2 200000000000 0.8 400000000000 0.2 1600000000000 0.2"
+
+# ── Monitoring / tracing ─────────────────────────────────────────────────────
+ENABLE_TRACE              = 1
+BUFFER_SIZE               = 32      # switch buffer in KB
+MON_START                 = 0       # monitoring window start (ns)
+MON_END                   = 20000   # monitoring window end (ns)
+QP_MON_INTERVAL           = 100     # QP monitoring interval (ns)
+QLEN_MON_INTERVAL         = 10000   # queue-length monitoring interval (ns)
+BW_MON_INTERVAL           = 10000   # bandwidth monitoring interval (ns)
+```
+
+The config serialises to a flat dict suitable for experiment trackers:
+
+```python
+from simai.config import load_config, to_flat_dict
+flat = to_flat_dict(load_config("run.toml"))
+# {"run.output": "results/my_run.json", "analytical.dp_overlap": 0.0,
+#  "ns3.CC_MODE": 1, "ns3.threads": 8, ...}
+
+import mlflow
+mlflow.log_params(flat)
+```
+
+---
 
 ## Differences from upstream SimAI
 
